@@ -1,0 +1,5 @@
+AGENTS.md
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
