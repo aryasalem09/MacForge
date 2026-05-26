@@ -4,6 +4,15 @@ MacForge is a native macOS customization and organization command center for mac
 
 The project is intentionally conservative: MacForge uses public Apple APIs, user-selected files and folders, previews before risky file operations, and clear failures when macOS requires permission or does not expose a safe control surface.
 
+## Tested Configuration
+
+This project was created and locally verified on:
+
+- macOS 26.5 (25F71)
+- MacBook Pro `Mac17,2`
+- Apple M5, 24 GB memory
+- Xcode 26.2
+
 ## What It Can Customize
 
 - Menu bar quick actions for common MacForge workflows.
@@ -57,6 +66,8 @@ The `DEVELOPER_DIR` prefix is useful on this Mac because full Xcode is installed
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test
 ```
+
+Current test coverage includes window layout frame calculations, Dock command whitelist behavior, file rule matching and guarded apply behavior, bulk rename preview and collision detection, duplicate grouping, preset rollback metadata, and security-scoped bookmark record encoding/decoding.
 
 Tests should avoid real system mutation. They must not require Accessibility permission, real Dock modification, real wallpaper changes, Shortcuts execution, protected folders, or external drives.
 
