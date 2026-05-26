@@ -17,4 +17,17 @@ final class SecurityScopedBookmarkStoreTests: XCTestCase {
         XCTAssertEqual(decoded.first?.originalPath, "/tmp/Folder")
         XCTAssertEqual(decoded.first?.createdAt.timeIntervalSince(records[0].createdAt) ?? 99, 0, accuracy: 1)
     }
+
+    @MainActor
+    func testFolderShortcutWithoutBookmarkUsesScopedHelperPath() {
+        let path = "/tmp/MacForgeFolder"
+        let shortcut = FolderShortcut(name: "Folder", path: path)
+        let store = FolderAccessStore()
+
+        let resolvedPath = store.withResolvedURL(shortcut) { url in
+            url.path
+        }
+
+        XCTAssertEqual(resolvedPath, path)
+    }
 }

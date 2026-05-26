@@ -32,4 +32,32 @@ final class BulkRenameEngineTests: XCTestCase {
         ], request: collisionRequest)
         XCTAssertTrue(collisionPreview.contains { $0.hasCollision })
     }
+
+    func testNoOpRenameCannotApply() {
+        let urls = [URL(fileURLWithPath: "/tmp/report.txt")]
+        let preview = BulkRenameEngine().preview(urls: urls, request: .empty)
+
+        XCTAssertFalse(BulkRenameEngine().canApply(preview))
+
+        let results = BulkRenameEngine().apply(previews: preview)
+        XCTAssertFalse(results.first?.success == true)
+        XCTAssertEqual(results.first?.message, "No files would change.")
+    }
+
+    func testCollisionBlocksApply() {
+        let preview = [
+            BulkRenamePreviewItem(
+                originalURL: URL(fileURLWithPath: "/tmp/a.txt"),
+                newName: "same.txt",
+                newURL: URL(fileURLWithPath: "/tmp/same.txt"),
+                hasCollision: true
+            )
+        ]
+
+        XCTAssertFalse(BulkRenameEngine().canApply(preview))
+
+        let results = BulkRenameEngine().apply(previews: preview)
+        XCTAssertFalse(results.first?.success == true)
+        XCTAssertEqual(results.first?.message, "Rename blocked because one or more destination names collide.")
+    }
 }

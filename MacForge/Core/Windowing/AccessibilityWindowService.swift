@@ -99,17 +99,17 @@ final class AccessibilityWindowService: WindowManaging {
         let system = AXUIElementCreateSystemWide()
         var focusedAppValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &focusedAppValue) == .success,
-              let focusedApp = focusedAppValue else {
+              let focusedApp = axElement(from: focusedAppValue) else {
             return nil
         }
 
         var focusedWindowValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focusedApp as! AXUIElement, kAXFocusedWindowAttribute as CFString, &focusedWindowValue) == .success,
-              let focusedWindowValue else {
+        guard AXUIElementCopyAttributeValue(focusedApp, kAXFocusedWindowAttribute as CFString, &focusedWindowValue) == .success,
+              let focusedWindow = axElement(from: focusedWindowValue) else {
             return nil
         }
 
-        return (focusedWindowValue as! AXUIElement)
+        return focusedWindow
     }
 
     private func frame(of window: AXUIElement) -> CGRect? {
@@ -151,19 +151,29 @@ final class AccessibilityWindowService: WindowManaging {
     private func pointAttribute(_ attribute: String, from element: AXUIElement) -> CGPoint? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let axValue = value else { return nil }
+              let axValue = axValue(from: value) else { return nil }
         var point = CGPoint.zero
-        guard AXValueGetValue(axValue as! AXValue, .cgPoint, &point) else { return nil }
+        guard AXValueGetValue(axValue, .cgPoint, &point) else { return nil }
         return point
     }
 
     private func sizeAttribute(_ attribute: String, from element: AXUIElement) -> CGSize? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let axValue = value else { return nil }
+              let axValue = axValue(from: value) else { return nil }
         var size = CGSize.zero
-        guard AXValueGetValue(axValue as! AXValue, .cgSize, &size) else { return nil }
+        guard AXValueGetValue(axValue, .cgSize, &size) else { return nil }
         return size
+    }
+
+    private func axElement(from value: CFTypeRef?) -> AXUIElement? {
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
+    }
+
+    private func axValue(from value: CFTypeRef?) -> AXValue? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return (value as! AXValue)
     }
 
     private func isSettable(_ attribute: String, on element: AXUIElement) -> Bool {

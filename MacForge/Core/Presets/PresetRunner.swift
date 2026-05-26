@@ -3,6 +3,7 @@ import Foundation
 struct PresetExecutionContext {
     var runAction: (PresetAction) async -> CommandResult
     var snapshotState: () -> [String: String]
+    var rollbackSnapshot: () -> RollbackSnapshot
 }
 
 struct PresetRunner {
@@ -14,6 +15,7 @@ struct PresetRunner {
         var transaction = PresetTransaction(
             presetName: preset.name,
             oldStateSnapshot: context.snapshotState(),
+            rollbackSnapshot: context.rollbackSnapshot(),
             actions: preset.actions
         )
 

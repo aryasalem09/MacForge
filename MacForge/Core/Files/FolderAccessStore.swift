@@ -14,45 +14,70 @@ final class FolderAccessStore {
         }
     }
 
-    func resolve(_ shortcut: FolderShortcut, startAccessing: Bool = true) -> URL? {
+    func resolve(_ shortcut: FolderShortcut) -> URL? {
         guard let bookmarkData = shortcut.bookmarkData else {
             return URL(fileURLWithPath: shortcut.path)
         }
 
         let record = BookmarkRecord(id: shortcut.id, name: shortcut.name, bookmarkData: bookmarkData, originalPath: shortcut.path, createdAt: shortcut.createdAt)
         do {
-            return try bookmarkStore.resolve(record, startAccessing: startAccessing).url
+            return try bookmarkStore.resolve(record, startAccessing: false).url
         } catch {
             return URL(fileURLWithPath: shortcut.path)
         }
     }
 
+    func withResolvedURL<T>(
+        _ shortcut: FolderShortcut,
+        startAccessing: Bool = true,
+        perform work: (URL) throws -> T
+    ) rethrows -> T {
+        let resolved = resolvedBookmark(for: shortcut, startAccessing: startAccessing)
+        defer { resolved?.stopAccessing() }
+        return try work(resolved?.url ?? URL(fileURLWithPath: shortcut.path))
+    }
+
+    func withResolvedURL<T>(
+        _ shortcut: FolderShortcut,
+        startAccessing: Bool = true,
+        perform work: (URL) async throws -> T
+    ) async rethrows -> T {
+        let resolved = resolvedBookmark(for: shortcut, startAccessing: startAccessing)
+        defer { resolved?.stopAccessing() }
+        return try await work(resolved?.url ?? URL(fileURLWithPath: shortcut.path))
+    }
+
     func open(_ shortcut: FolderShortcut) -> CommandResult {
-        guard let url = resolve(shortcut) else {
-            return .failure("Open Folder", "Could not resolve access for \(shortcut.name).")
+        withResolvedURL(shortcut) { url in
+            NSWorkspace.shared.open(url)
+                ? .success("Open Folder", "Opened \(shortcut.name).")
+                : .failure("Open Folder", "Finder could not open \(shortcut.name).")
         }
-        return NSWorkspace.shared.open(url)
-            ? .success("Open Folder", "Opened \(shortcut.name).")
-            : .failure("Open Folder", "Finder could not open \(shortcut.name).")
     }
 
     func reveal(_ shortcut: FolderShortcut) -> CommandResult {
-        guard let url = resolve(shortcut) else {
-            return .failure("Reveal Folder", "Could not resolve access for \(shortcut.name).")
+        withResolvedURL(shortcut) { url in
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return .success("Reveal Folder", "Revealed \(shortcut.name) in Finder.")
         }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-        return .success("Reveal Folder", "Revealed \(shortcut.name) in Finder.")
     }
 
     func metadata(for shortcut: FolderShortcut) async -> FolderMetadata {
-        guard let url = await MainActor.run(body: { resolve(shortcut) }) else {
-            return FolderMetadata(itemCount: nil, lastModified: nil, sizeBytes: nil)
+        withResolvedURL(shortcut) { url in
+            let fileManager = FileManager.default
+            let resourceValues = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            let itemCount = (try? fileManager.contentsOfDirectory(atPath: url.path).count)
+            return FolderMetadata(itemCount: itemCount, lastModified: resourceValues?.contentModificationDate, sizeBytes: nil)
+        }
+    }
+
+    private func resolvedBookmark(for shortcut: FolderShortcut, startAccessing: Bool) -> ResolvedBookmark? {
+        guard let bookmarkData = shortcut.bookmarkData else {
+            return nil
         }
 
-        let fileManager = FileManager.default
-        let resourceValues = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-        let itemCount = (try? fileManager.contentsOfDirectory(atPath: url.path).count)
-        return FolderMetadata(itemCount: itemCount, lastModified: resourceValues?.contentModificationDate, sizeBytes: nil)
+        let record = BookmarkRecord(id: shortcut.id, name: shortcut.name, bookmarkData: bookmarkData, originalPath: shortcut.path, createdAt: shortcut.createdAt)
+        return try? bookmarkStore.resolve(record, startAccessing: startAccessing)
     }
 }
 

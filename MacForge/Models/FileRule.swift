@@ -30,6 +30,24 @@ enum FileRuleAction: Codable, Hashable {
         case .moveToTrash: "Move to Trash"
         }
     }
+
+    var destinationFolderID: UUID? {
+        switch self {
+        case .moveToFolder(let id), .copyToFolder(let id):
+            id
+        case .tag, .moveToTrash:
+            nil
+        }
+    }
+
+    var effectDescription: String {
+        switch self {
+        case .moveToFolder: "Moves matched files to another pinned folder."
+        case .copyToFolder: "Copies matched files to another pinned folder."
+        case .tag: "Writes Finder tags to matched files when macOS allows it."
+        case .moveToTrash: "Moves matched files to Trash."
+        }
+    }
 }
 
 struct FileRule: Identifiable, Codable, Hashable {

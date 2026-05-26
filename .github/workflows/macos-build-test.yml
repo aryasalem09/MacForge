@@ -1,0 +1,25 @@
+name: macOS Build And Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-test:
+    name: Build and test MacForge
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Print Xcode version
+        run: xcodebuild -version
+
+      - name: Build
+        run: xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' build
+
+      - name: Test
+        run: xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test

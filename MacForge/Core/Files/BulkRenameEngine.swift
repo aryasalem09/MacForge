@@ -70,4 +70,34 @@ struct BulkRenameEngine {
             return BulkRenamePreviewItem(originalURL: url, newName: newName, newURL: destination, hasCollision: collision)
         }
     }
+
+    func canApply(_ previews: [BulkRenamePreviewItem]) -> Bool {
+        previews.contains { $0.changed } && !previews.contains { $0.hasCollision }
+    }
+
+    func apply(previews: [BulkRenamePreviewItem]) -> [CommandResult] {
+        guard previews.contains(where: \.changed) else {
+            return [.failure("Rename", "No files would change.")]
+        }
+
+        guard !previews.contains(where: \.hasCollision) else {
+            return [.failure("Rename", "Rename blocked because one or more destination names collide.")]
+        }
+
+        var results: [CommandResult] = []
+        for preview in previews where preview.changed {
+            guard !FileManager.default.fileExists(atPath: preview.newURL.path) || preview.newURL == preview.originalURL else {
+                results.append(.failure("Rename", "Destination already exists for \(preview.newName)."))
+                continue
+            }
+
+            do {
+                try FileManager.default.moveItem(at: preview.originalURL, to: preview.newURL)
+                results.append(.success("Rename", "Renamed \(preview.originalURL.lastPathComponent) to \(preview.newName)."))
+            } catch {
+                results.append(.failure("Rename", "Could not rename \(preview.originalURL.lastPathComponent).", details: [error.localizedDescription]))
+            }
+        }
+        return results
+    }
 }

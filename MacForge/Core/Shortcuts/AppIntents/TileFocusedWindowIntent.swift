@@ -34,7 +34,7 @@ struct TileFocusedWindowIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set(layout.rawValue, forKey: "MacForgeLastRequestedWindowLayout")
+        MacForgeCommandBus.shared.enqueue(.tileFocusedWindow(layout.rawValue))
         return .result()
     }
 }

@@ -60,6 +60,35 @@ final class WallpaperService: WallpaperManaging {
         }
     }
 
+    func restore(_ states: [ScreenWallpaperState]) async -> [CommandResult] {
+        var results: [CommandResult] = []
+        for state in states {
+            guard let imagePath = state.imagePath else {
+                results.append(.failure("Wallpaper Rollback", "No previous wallpaper path was captured for \(state.localizedName)."))
+                continue
+            }
+
+            let imageURL = URL(fileURLWithPath: imagePath)
+            guard FileManager.default.fileExists(atPath: imageURL.path) else {
+                results.append(.failure("Wallpaper Rollback", "Previous wallpaper is no longer accessible for \(state.localizedName).", details: [imagePath]))
+                continue
+            }
+
+            guard let screen = NSScreen.screens.first(where: { $0.localizedName == state.localizedName }) ?? NSScreen.main else {
+                results.append(.failure("Wallpaper Rollback", "No display was available for \(state.localizedName)."))
+                continue
+            }
+
+            do {
+                try NSWorkspace.shared.setDesktopImageURL(imageURL, for: screen, options: [:])
+                results.append(.success("Wallpaper Rollback", "Restored wallpaper for \(state.localizedName)."))
+            } catch {
+                results.append(.failure("Wallpaper Rollback", "Could not restore wallpaper for \(state.localizedName).", details: [error.localizedDescription]))
+            }
+        }
+        return results
+    }
+
     private func resolveURL(for preset: WallpaperPreset) throws -> URL {
         if let bookmark = preset.imageBookmarkData {
             var stale = false
