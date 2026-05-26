@@ -73,7 +73,7 @@ Tests should avoid real system mutation. They must not require Accessibility per
 
 ## Continuous Integration
 
-GitHub Actions runs build and test on `macos-latest`. The project was locally verified with Xcode 26.2; if GitHub's hosted runner image temporarily lags that toolchain, CI may need a newer macOS runner image or an explicit Xcode selection update.
+GitHub Actions runs build and test on `macos-26` so CI has an Xcode 26 toolchain. The project was locally verified with Xcode 26.2.
 
 ## Safety Model
 

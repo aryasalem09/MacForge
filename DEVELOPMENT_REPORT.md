@@ -8,7 +8,7 @@ MacForge already had a good safety direction: public API usage, whitelisted Dock
 
 - Made `AGENTS.md` trackable and expanded future-agent safety guidance.
 - Rebuilt `README.md` around capabilities, limitations, permissions, safety model, CI, distribution notes, roadmap, and manual testing.
-- Added GitHub Actions CI at `.github/workflows/macos-build-test.yml`.
+- Added GitHub Actions CI at `.github/workflows/macos-build-test.yml`, pinned to `macos-26` for the Xcode 26 toolchain.
 - Added closure-scoped security bookmark helpers and updated folder/file call sites to avoid leaking started security-scoped access.
 - Added core file-rule dry-run and collision enforcement in `FileOrganizerService`.
 - Added per-rule Preview, Apply, Remove, and Enabled controls plus an apply confirmation sheet.
@@ -68,7 +68,7 @@ The final run executed 24 unit tests. Tests do not require Accessibility permiss
 
 ## Remote CI Status
 
-The GitHub Actions workflow exists at `.github/workflows/macos-build-test.yml`. Remote CI must be verified after this branch is pushed and the pull request is opened or updated.
+The first remote CI run used `macos-latest`, which resolved to macOS 15 and Xcode 16.4 and failed during build with exit code 65. The workflow was updated to `macos-26`; the replacement run must be verified after this update is pushed.
 
 ## Verification Corrections
 
@@ -92,7 +92,7 @@ The GitHub Actions workflow exists at `.github/workflows/macos-build-test.yml`. 
 
 ## Known Limitations
 
-- GitHub Actions uses `macos-latest`; if the hosted runner image does not include an Xcode version compatible with this project, CI will need a runner or Xcode selection update.
+- GitHub Actions must use a macOS 26 runner or another runner with an Xcode 26 toolchain.
 - Dock rollback only runs when Experimental Dock Tweaks are enabled.
 - Wallpaper rollback only restores paths that still exist and are accessible to the app.
 - File-rule rollback is intentionally unavailable in v0.2 because automatically reversing moves, copies, tags, or Trash operations can be unsafe.
