@@ -5,6 +5,7 @@ struct BulkRenameView: View {
     @State private var selectedURLs: [URL] = []
     @State private var request = BulkRenameRequest.empty
     @State private var previews: [BulkRenamePreviewItem] = []
+    @State private var showingConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -16,9 +17,9 @@ struct BulkRenameView: View {
                     refreshPreview()
                 }
                 Button("Apply Rename", systemImage: "checkmark.circle") {
-                    applyRename()
+                    showingConfirmation = true
                 }
-                .disabled(previews.isEmpty || previews.contains { $0.hasCollision })
+                .disabled(!environment.bulkRenameEngine.canApply(previews))
             }
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
@@ -45,6 +46,14 @@ struct BulkRenameView: View {
             if previews.isEmpty {
                 ContentUnavailableView("No rename preview", systemImage: "textformat", description: Text("Choose files and configure a rename pattern."))
             } else {
+                if !previews.contains(where: \.changed) {
+                    Label("No selected files would be renamed.", systemImage: "info.circle")
+                        .foregroundStyle(.secondary)
+                }
+                if previews.contains(where: \.hasCollision) {
+                    Label("Resolve collisions before applying.", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
                 ForEach(previews) { item in
                     HStack {
                         Image(systemName: item.hasCollision ? "exclamationmark.triangle.fill" : "arrow.right.circle")
@@ -65,6 +74,13 @@ struct BulkRenameView: View {
             }
         }
         .onChange(of: request) { _, _ in refreshPreview() }
+        .sheet(isPresented: $showingConfirmation) {
+            BulkRenameConfirmationView(
+                previews: previews.filter(\.changed),
+                onCancel: { showingConfirmation = false },
+                onApply: applyRename
+            )
+        }
     }
 
     private func chooseFiles() {
@@ -83,17 +99,45 @@ struct BulkRenameView: View {
     }
 
     private func applyRename() {
-        var results: [CommandResult] = []
-        for preview in previews where preview.changed && !preview.hasCollision {
-            do {
-                try FileManager.default.moveItem(at: preview.originalURL, to: preview.newURL)
-                results.append(.success("Rename", "Renamed \(preview.originalURL.lastPathComponent) to \(preview.newName)."))
-            } catch {
-                results.append(.failure("Rename", "Could not rename \(preview.originalURL.lastPathComponent).", details: [error.localizedDescription]))
+        let originalPreviews = previews
+        let results = environment.bulkRenameEngine.apply(previews: previews)
+        results.forEach(environment.append)
+        selectedURLs = originalPreviews.map { $0.changed && !$0.hasCollision ? $0.newURL : $0.originalURL }
+        showingConfirmation = false
+        refreshPreview()
+    }
+}
+
+private struct BulkRenameConfirmationView: View {
+    var previews: [BulkRenamePreviewItem]
+    var onCancel: () -> Void
+    var onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Apply Rename?")
+                .font(.headline)
+            Text("\(previews.count) file(s) will be renamed. Renames can be confusing to undo manually, so review the list before applying.")
+                .foregroundStyle(.secondary)
+
+            List(Array(previews.prefix(100))) { item in
+                HStack {
+                    Text(item.originalURL.lastPathComponent)
+                    Image(systemName: "arrow.right")
+                    Text(item.newName)
+                        .fontWeight(.semibold)
+                }
+            }
+            .frame(minHeight: 220)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel)
+                Button("Apply", systemImage: "checkmark.circle", action: onApply)
+                    .disabled(previews.isEmpty)
             }
         }
-        results.forEach(environment.append)
-        selectedURLs = previews.map(\.newURL)
-        refreshPreview()
+        .padding(20)
+        .frame(minWidth: 560, minHeight: 380)
     }
 }

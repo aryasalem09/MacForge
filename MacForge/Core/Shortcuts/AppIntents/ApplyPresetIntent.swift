@@ -18,7 +18,7 @@ struct ApplyPresetIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set(presetName, forKey: "MacForgeLastRequestedPresetName")
+        MacForgeCommandBus.shared.enqueue(.applyPreset(presetName))
         return .result()
     }
 }

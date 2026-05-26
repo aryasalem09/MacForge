@@ -18,7 +18,7 @@ struct OpenPinnedFolderIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set(folderName, forKey: "MacForgeLastRequestedFolderName")
+        MacForgeCommandBus.shared.enqueue(.openPinnedFolder(folderName))
         return .result()
     }
 }

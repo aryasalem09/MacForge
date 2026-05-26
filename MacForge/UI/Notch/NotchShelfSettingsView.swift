@@ -33,7 +33,12 @@ struct NotchShelfSettingsView: View {
                     Text("\(Int(environment.notchConfig.opacity * 100))%")
                         .frame(width: 70, alignment: .trailing)
                 }
-                Toggle("Ignore mouse events when inactive", isOn: $environment.notchConfig.ignoreMouseEventsWhenInactive)
+                Toggle("Click-through mode", isOn: $environment.notchConfig.ignoreMouseEventsWhenInactive)
+                if environment.notchConfig.ignoreMouseEventsWhenInactive {
+                    Label("Shelf buttons may not be clickable while click-through mode is enabled.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Section("Widgets") {

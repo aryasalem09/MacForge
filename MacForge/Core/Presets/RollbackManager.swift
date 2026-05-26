@@ -1,11 +1,42 @@
 import Foundation
 
 struct RollbackManager {
-    func rollback(_ transaction: PresetTransaction) async -> [CommandResult] {
-        guard transaction.rollbackAvailable else {
-            return [.failure("Rollback", "No reversible actions were recorded for \(transaction.presetName).")]
+    func rollback(_ transaction: PresetTransaction, context: PresetRollbackContext) async -> [CommandResult] {
+        guard let snapshot = transaction.rollbackSnapshot, snapshot.hasRestorableState else {
+            return [.failure("Rollback", "No restorable snapshot was recorded for \(transaction.presetName).")]
         }
 
-        return [.success("Rollback", "Rollback metadata is available. Dock, wallpaper, and shelf state can be restored when previous values were captured.", details: transaction.oldStateSnapshot.map { "\($0.key): \($0.value)" })]
+        var results: [CommandResult] = []
+
+        if let enabled = snapshot.notchShelfEnabled {
+            results.append(await context.restoreNotchShelf(enabled))
+        }
+
+        if let dockSettings = snapshot.dockSettings {
+            results.append(contentsOf: await context.restoreDockSettings(dockSettings))
+        }
+
+        if !snapshot.wallpaperStates.isEmpty {
+            results.append(contentsOf: await context.restoreWallpapers(snapshot.wallpaperStates))
+        }
+
+        if transaction.actions.contains(where: \.isFileOperation) {
+            results.append(.failure("File Rule Rollback", "File-rule changes are not automatically reversible in v0.2.", details: [
+                "Review command results and Finder Trash manually if a file rule moved files."
+            ]))
+        }
+
+        return results.isEmpty
+            ? [.failure("Rollback", "No restorable values were available for \(transaction.presetName).")]
+            : results
+    }
+}
+
+private extension PresetAction {
+    var isFileOperation: Bool {
+        if case .runFileRule = self {
+            return true
+        }
+        return false
     }
 }

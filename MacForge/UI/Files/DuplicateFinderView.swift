@@ -48,14 +48,15 @@ struct DuplicateFinderView: View {
 
     private func scan() {
         guard let id = selectedFolderID ?? environment.pinnedFolders.first?.id,
-              let shortcut = environment.pinnedFolders.first(where: { $0.id == id }),
-              let url = environment.folderAccessStore.resolve(shortcut) else {
+              let shortcut = environment.pinnedFolders.first(where: { $0.id == id }) else {
             return
         }
 
         isScanning = true
         Task {
-            groups = await environment.duplicateFinder.findDuplicates(in: url)
+            groups = await environment.folderAccessStore.withResolvedURL(shortcut) { url in
+                await environment.duplicateFinder.findDuplicates(in: url)
+            }
             isScanning = false
         }
     }

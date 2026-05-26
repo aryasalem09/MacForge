@@ -18,37 +18,54 @@ struct DuplicateGroup: Identifiable, Hashable {
 struct DuplicateFinder {
     func findDuplicates(in folderURL: URL) async -> [DuplicateGroup] {
         await Task.detached(priority: .utility) {
-            let fileManager = FileManager.default
-            let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
-            guard let enumerator = fileManager.enumerator(at: folderURL, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
-                return []
-            }
-
-            var bySize: [Int64: [URL]] = [:]
-            for case let url as URL in enumerator {
-                let values = try? url.resourceValues(forKeys: keys)
-                guard values?.isRegularFile == true, let fileSize = values?.fileSize else { continue }
-                bySize[Int64(fileSize), default: []].append(url)
-            }
-
-            var groups: [DuplicateGroup] = []
-            for (size, urls) in bySize where urls.count > 1 {
-                var byHash: [String: [DuplicateFile]] = [:]
-                for url in urls {
-                    guard let hash = sha256(url: url) else { continue }
-                    byHash[hash, default: []].append(DuplicateFile(url: url, sizeBytes: size, hash: hash))
-                }
-                for (hash, files) in byHash where files.count > 1 {
-                    groups.append(DuplicateGroup(sizeBytes: size, hash: hash, files: files))
-                }
-            }
-            return groups.sorted { $0.sizeBytes > $1.sizeBytes }
+            duplicateGroups(in: folderURL)
         }.value
     }
 
-    private func sha256(url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { return nil }
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+    private func duplicateGroups(in folderURL: URL) -> [DuplicateGroup] {
+        let fileManager = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+        guard let enumerator = fileManager.enumerator(at: folderURL, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
+            return []
+        }
+
+        var bySize: [Int64: [URL]] = [:]
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: keys)
+            guard values?.isRegularFile == true, let fileSize = values?.fileSize else { continue }
+            bySize[Int64(fileSize), default: []].append(url)
+        }
+
+        var groups: [DuplicateGroup] = []
+        for (size, urls) in bySize where urls.count > 1 {
+            var byHash: [String: [DuplicateFile]] = [:]
+            for url in urls {
+                guard let hash = sha256(url: url) else { continue }
+                byHash[hash, default: []].append(DuplicateFile(url: url, sizeBytes: size, hash: hash))
+            }
+            for (hash, files) in byHash where files.count > 1 {
+                groups.append(DuplicateGroup(sizeBytes: size, hash: hash, files: files))
+            }
+        }
+        return groups.sorted { $0.sizeBytes > $1.sizeBytes }
+    }
+
+    private func sha256(url: URL, chunkSize: Int = 4 * 1_024 * 1_024) -> String? {
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+
+            var hasher = SHA256()
+            while true {
+                let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+                guard !chunk.isEmpty else { break }
+                hasher.update(data: chunk)
+            }
+
+            let digest = hasher.finalize()
+            return digest.map { String(format: "%02x", $0) }.joined()
+        } catch {
+            return nil
+        }
     }
 }

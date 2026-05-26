@@ -54,6 +54,10 @@ struct PresetsView: View {
                             Label(result.message, systemImage: result.success ? "checkmark.circle" : "exclamationmark.triangle")
                                 .foregroundStyle(result.success ? Color.primary : Color.orange)
                         }
+                        Button("Rollback Last Preset", systemImage: "arrow.uturn.backward.circle") {
+                            Task { await environment.rollbackLastPreset() }
+                        }
+                        .disabled(!transaction.rollbackAvailable)
                     }
                     .padding(14)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))

@@ -24,6 +24,8 @@ struct FileRuleEditorView: View {
     @State private var actionChoice: RuleActionChoice = .move
     @State private var dryRunOnly = true
     @State private var previewLines: [String] = []
+    @State private var rulePendingConfirmation: FileRule?
+    @State private var confirmationPreviews: [FileRulePreview] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -55,17 +57,10 @@ struct FileRuleEditorView: View {
                 }
                 Toggle("Dry run only", isOn: $dryRunOnly)
 
-                HStack {
-                    Button("Save Rule", systemImage: "plus.circle") {
-                        saveRule()
-                    }
-                    .disabled(environment.pinnedFolders.isEmpty)
-
-                    Button("Preview First Matching Rule", systemImage: "eye") {
-                        previewFirstRule()
-                    }
-                    .disabled(environment.fileRules.isEmpty)
+                Button("Save Rule", systemImage: "plus.circle") {
+                    saveRule()
                 }
+                .disabled(environment.pinnedFolders.isEmpty)
             }
             .padding(14)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -87,29 +82,58 @@ struct FileRuleEditorView: View {
             Text("Rules")
                 .font(.headline)
             ForEach(environment.fileRules) { rule in
-                HStack {
-                    Image(systemName: rule.dryRunOnly ? "eye" : "play.circle")
-                    VStack(alignment: .leading) {
-                        Text(rule.name)
-                        Text("\(rule.matchKind.label) -> \(rule.action.label)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("Enabled", isOn: Binding(
-                        get: { rule.isEnabled },
-                        set: { newValue in
-                            if let index = environment.fileRules.firstIndex(where: { $0.id == rule.id }) {
-                                environment.fileRules[index].isEnabled = newValue
-                            }
-                        }
-                    ))
-                    .labelsHidden()
-                }
-                .padding(10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                ruleRow(rule)
             }
         }
+        .sheet(item: $rulePendingConfirmation) { rule in
+            FileRuleApplyConfirmationView(
+                rule: rule,
+                previews: confirmationPreviews,
+                onCancel: {
+                    rulePendingConfirmation = nil
+                    confirmationPreviews = []
+                },
+                onApply: {
+                    applyConfirmed(rule)
+                }
+            )
+        }
+    }
+
+    private func ruleRow(_ rule: FileRule) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: rule.dryRunOnly ? "eye" : "play.circle")
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rule.name)
+                Text("\(rule.matchKind.label) -> \(rule.action.label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("Enabled", isOn: Binding(
+                get: { rule.isEnabled },
+                set: { newValue in
+                    if let index = environment.fileRules.firstIndex(where: { $0.id == rule.id }) {
+                        environment.fileRules[index].isEnabled = newValue
+                    }
+                }
+            ))
+            .labelsHidden()
+            Button("Preview", systemImage: "eye") {
+                preview(rule)
+            }
+            .disabled(!rule.isEnabled)
+            Button("Apply", systemImage: "checkmark.circle") {
+                prepareApply(rule)
+            }
+            .disabled(!rule.isEnabled)
+            Button("Remove", systemImage: "trash", role: .destructive) {
+                environment.fileRules.removeAll { $0.id == rule.id }
+            }
+        }
+        .padding(10)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func saveRule() {
@@ -138,21 +162,82 @@ struct FileRuleEditorView: View {
         environment.append(.success("File Rule", "Saved \(rule.name)."))
     }
 
-    private func previewFirstRule() {
-        guard let rule = environment.fileRules.first,
-              let sourceID = rule.sourceFolderID,
-              let shortcut = environment.pinnedFolders.first(where: { $0.id == sourceID }),
-              let sourceURL = environment.folderAccessStore.resolve(shortcut) else {
-            previewLines = ["Missing source folder access."]
-            return
+    private func preview(_ rule: FileRule) {
+        switch environment.previewFileRule(rule) {
+        case .success(let previews):
+            previewLines = previews.prefix(30).map { "\($0.fileURL.lastPathComponent): \($0.actionDescription)" }
+            if previewLines.isEmpty {
+                previewLines = ["No files matched."]
+            }
+        case .failure(let result):
+            previewLines = [result.message] + result.details
+            environment.append(result)
         }
+    }
 
-        let previews = environment.fileOrganizerService.preview(rule: rule, sourceURL: sourceURL) { folderID in
-            environment.pinnedFolders.first(where: { $0.id == folderID }).flatMap { environment.folderAccessStore.resolve($0) }
+    private func prepareApply(_ rule: FileRule) {
+        switch environment.previewFileRule(rule) {
+        case .success(let previews):
+            confirmationPreviews = previews
+            if rule.dryRunOnly {
+                previewLines = previews.isEmpty
+                    ? ["Dry run is enabled. No files matched."]
+                    : ["Dry run is enabled. No files were changed."] + previews.prefix(30).map { "\($0.fileURL.lastPathComponent): \($0.actionDescription)" }
+                environment.append(.success("File Rule Preview", "Dry run is enabled for \(rule.name). No files were changed."))
+            } else {
+                rulePendingConfirmation = rule
+            }
+        case .failure(let result):
+            previewLines = [result.message] + result.details
+            environment.append(result)
         }
-        previewLines = previews.prefix(20).map { "\($0.fileURL.lastPathComponent): \($0.actionDescription)" }
-        if previewLines.isEmpty {
-            previewLines = ["No files matched."]
+    }
+
+    private func applyConfirmed(_ rule: FileRule) {
+        let results = environment.applyFileRule(rule, dryRun: false)
+        results.forEach(environment.append)
+        previewLines = results.map { "\($0.title): \($0.message)" }
+        rulePendingConfirmation = nil
+        confirmationPreviews = []
+    }
+}
+
+private struct FileRuleApplyConfirmationView: View {
+    var rule: FileRule
+    var previews: [FileRulePreview]
+    var onCancel: () -> Void
+    var onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Apply \(rule.name)?")
+                .font(.headline)
+            Text("\(previews.count) matched file(s). \(rule.action.effectDescription)")
+                .foregroundStyle(.secondary)
+
+            if previews.contains(where: \.isDestructive) {
+                Label("This action moves files to Trash. Nothing is permanently deleted.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+
+            List(Array(previews.prefix(80))) { preview in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(preview.fileURL.lastPathComponent)
+                    Text(preview.actionDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(minHeight: 180)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel)
+                Button("Apply", systemImage: "checkmark.circle", action: onApply)
+                    .disabled(previews.isEmpty)
+            }
         }
+        .padding(20)
+        .frame(minWidth: 520, minHeight: 360)
     }
 }

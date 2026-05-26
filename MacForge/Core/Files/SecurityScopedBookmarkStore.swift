@@ -47,6 +47,16 @@ struct SecurityScopedBookmarkStore {
         return ResolvedBookmark(url: url, isStale: stale, didStartAccessing: didStart)
     }
 
+    func withResolvedURL<T>(
+        _ record: BookmarkRecord,
+        startAccessing: Bool = true,
+        perform work: (URL) throws -> T
+    ) throws -> T {
+        let resolved = try resolve(record, startAccessing: startAccessing)
+        defer { resolved.stopAccessing() }
+        return try work(resolved.url)
+    }
+
     func encode(_ records: [BookmarkRecord]) throws -> Data {
         try JSONEncoder.macForge.encode(records)
     }
