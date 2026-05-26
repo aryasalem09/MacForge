@@ -68,7 +68,7 @@ The final run executed 24 unit tests. Tests do not require Accessibility permiss
 
 ## Remote CI Status
 
-The first remote CI run used `macos-latest`, which resolved to macOS 15 and Xcode 16.4 and failed during build with exit code 65. The workflow was updated to `macos-26`; the replacement run must be verified after this update is pushed.
+The first remote CI run used `macos-latest`, which resolved to macOS 15 and Xcode 16.4 and failed during build with exit code 65. The workflow was updated to `macos-26`, and the replacement GitHub Actions run `26461705942` passed build and test on PR #1.
 
 ## Verification Corrections
 
