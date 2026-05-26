@@ -1,13 +1,12 @@
 # MacForge
 
-MacForge is a native macOS customization and organization command center. It is built as a SwiftUI + AppKit macOS app for macOS 14 or newer and was validated on this machine:
-
+## Tried and Tested on this, I cannot guarantee it will work well on other configs
 - macOS 26.5 (25F71)
 - MacBook Pro `Mac17,2`
 - Apple M5, 24 GB memory
 - Xcode 26.2
 
-MacForge uses public Apple APIs and local, user-consented operations. It does not use private APIs, code injection, root escalation, kernel extensions, SIP bypasses, or hidden persistence.
+
 
 ## What It Can Customize
 
@@ -21,13 +20,6 @@ MacForge uses public Apple APIs and local, user-consented operations. It does no
 - Presets that combine shelf, Dock, wallpaper, window, folder, and file-rule actions
 - Basic App Intents scaffolding for Shortcuts
 
-## What It Cannot Customize
-
-- It cannot bypass macOS permissions.
-- It cannot change protected system behavior that Apple does not expose through public APIs.
-- It cannot use hidden Dock/private APIs or inject into Dock/Finder.
-- It cannot permanently delete files; File Hub uses previews and Trash-only destructive actions.
-- Mac App Store distribution would need Experimental Dock Tweaks disabled.
 
 ## Required Permissions
 
@@ -50,7 +42,6 @@ Command-line build:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' build
 ```
 
-The `DEVELOPER_DIR` prefix is useful on this Mac because `xcode-select` currently points at Command Line Tools while full Xcode is installed at `/Applications/Xcode.app`.
 
 ## Run Tests
 
@@ -58,7 +49,7 @@ The `DEVELOPER_DIR` prefix is useful on this Mac because `xcode-select` currentl
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test
 ```
 
-Current test coverage includes:
+## Test Coverage:
 
 - Window layout frame calculations
 - Dock command whitelist behavior
@@ -79,7 +70,7 @@ Current test coverage includes:
 
 ## Distribution Notes
 
-Developer ID or local builds are recommended for the full feature set. A Mac App Store variant should disable Experimental Dock Tweaks and review sandbox entitlements carefully. No entitlements are invented in this MVP project.
+Developer ID or local builds are recommended for the full feature set. A Mac App Store variant should disable Experimental Dock Tweaks and review sandbox entitlements carefully. 
 
 ## Roadmap
 
