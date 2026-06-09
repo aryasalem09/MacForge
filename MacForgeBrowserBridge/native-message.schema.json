@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MacForge Browser Media Message",
+  "type": "object",
+  "properties": {
+    "title": { "type": ["string", "null"] },
+    "artist": { "type": ["string", "null"] },
+    "album": { "type": ["string", "null"] },
+    "playbackState": {
+      "type": "string",
+      "enum": ["playing", "paused", "stopped", "unknown"]
+    },
+    "duration": { "type": ["number", "null"] },
+    "position": { "type": ["number", "null"] },
+    "artworkURL": { "type": ["string", "null"], "format": "uri" },
+    "sourceURL": { "type": ["string", "null"], "format": "uri" },
+    "browserName": { "type": ["string", "null"] },
+    "tabTitle": { "type": ["string", "null"] }
+  },
+  "required": ["playbackState"],
+  "additionalProperties": false
+}

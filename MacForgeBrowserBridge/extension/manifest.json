@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "MacForge Browser Bridge",
+  "version": "0.1.0",
+  "description": "Future opt-in bridge from browser Media Session metadata to MacForge.",
+  "permissions": ["activeTab", "scripting", "nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Send media metadata to MacForge"
+  }
+}

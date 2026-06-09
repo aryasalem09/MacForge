@@ -27,6 +27,7 @@ enum NotchIslandActivityKind: String, Codable, CaseIterable, Identifiable, Hasha
     case duplicateScan
     case folder
     case wallpaper
+    case dock
     case permission
     case shortcut
     case error

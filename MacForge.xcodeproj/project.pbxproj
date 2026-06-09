@@ -47,6 +47,16 @@
 		A1B2C3D4E5F60718293A4B5F /* NotchIslandState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5E /* NotchIslandState.swift */; };
 		A1B2C3D4E5F60718293A4B60 /* NotchIslandActivityCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchIslandActivityCenter.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B61 /* NotchIslandActivityCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B60 /* NotchIslandActivityCenter.swift */; };
+		AA1000000000000000000101 /* LiveIslandPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandPriority.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000102 /* LiveIslandPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000101 /* LiveIslandPriority.swift */; };
+		AA1000000000000000000103 /* LiveIslandSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandSnapshot.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000104 /* LiveIslandSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000103 /* LiveIslandSnapshot.swift */; };
+		AA1000000000000000000105 /* LiveIslandSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandSettings.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000106 /* LiveIslandSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000105 /* LiveIslandSettings.swift */; };
+		AA1000000000000000000107 /* LiveIslandProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandProvider.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000108 /* LiveIslandProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000107 /* LiveIslandProvider.swift */; };
+		AA1000000000000000000109 /* LiveIslandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandCoordinator.swift"; sourceTree = "<group>"; };
+		AA100000000000000000010A /* LiveIslandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000109 /* LiveIslandCoordinator.swift */; };
 		C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfPanel.swift"; sourceTree = "<group>"; };
 		9AA7A2C70886E022B2A06C48 /* NotchShelfPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */; };
 		ADDDEF87B269C3A37207B53B /* NotchShelfWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfWindowController.swift"; sourceTree = "<group>"; };
@@ -191,6 +201,8 @@
 		C1B2C3D4E5F60718293A4B5D /* NotchGeometryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B2C3D4E5F60718293A4B5C /* NotchGeometryServiceTests.swift */; };
 		C1B2C3D4E5F60718293A4B5E /* NotchIslandStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotchIslandStateTests.swift"; sourceTree = "<group>"; };
 		C1B2C3D4E5F60718293A4B5F /* NotchIslandStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B2C3D4E5F60718293A4B5E /* NotchIslandStateTests.swift */; };
+		AA1000000000000000000201 /* LiveIslandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LiveIslandTests.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000202 /* LiveIslandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000201 /* LiveIslandTests.swift */; };
 		F9679DFADA6EBAB2C7B1F17D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Resources/Assets.xcassets"; sourceTree = "<group>"; };
 		646255EFBA030B2767F671AF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F9679DFADA6EBAB2C7B1F17D /* Assets.xcassets */; };
 		D1B2C3D4E5F60718293A4B5C /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
@@ -221,6 +233,11 @@
 				A1B2C3D4E5F60718293A4B5C,
 				A1B2C3D4E5F60718293A4B5E,
 				A1B2C3D4E5F60718293A4B60,
+				AA1000000000000000000101,
+				AA1000000000000000000103,
+				AA1000000000000000000105,
+				AA1000000000000000000107,
+				AA1000000000000000000109,
 				C24B39CF3AEBD0821EA3D0B3,
 				ADDDEF87B269C3A37207B53B,
 				52CCD9FE5355F336CD024F6A,
@@ -301,6 +318,7 @@
 				7B06BF9C24CCB6B0E1719882,
 				C1B2C3D4E5F60718293A4B5C,
 				C1B2C3D4E5F60718293A4B5E,
+				AA1000000000000000000201,
 			);
 			path = MacForgeTests;
 			sourceTree = "<group>";
@@ -345,6 +363,11 @@
 				A1B2C3D4E5F60718293A4B5D,
 				A1B2C3D4E5F60718293A4B5F,
 				A1B2C3D4E5F60718293A4B61,
+				AA1000000000000000000102,
+				AA1000000000000000000104,
+				AA1000000000000000000106,
+				AA1000000000000000000108,
+				AA100000000000000000010A,
 				9AA7A2C70886E022B2A06C48,
 				1575ADD112A28C8C75255A5D,
 				38B7CE9A7F42E7F7020740DE,
@@ -425,6 +448,7 @@
 				4131936DE74FF20DDD6A47C9,
 				C1B2C3D4E5F60718293A4B5D,
 				C1B2C3D4E5F60718293A4B5F,
+				AA1000000000000000000202,
 			); runOnlyForDeploymentPostprocessing = 0; };
 		60031A85A96A4D26BD3CA20A /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
 		4D27AC12FC3E4BC51E895943 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };

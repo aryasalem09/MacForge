@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 private struct MacForgeConfiguration: Codable {
     var notchConfig: NotchShelfConfig
+    var liveIslandSettings: LiveIslandSettings?
     var dockSettings: DockSettings
     var pinnedFolders: [FolderShortcut]
     var wallpaperPresets: [WallpaperPreset]
@@ -42,6 +43,12 @@ final class AppEnvironment: ObservableObject {
     @Published var notchConfig: NotchShelfConfig {
         didSet { updateShelfAndPersist() }
     }
+    @Published var liveIslandSettings: LiveIslandSettings {
+        didSet {
+            liveIslandCoordinator.updateSettings(liveIslandSettings)
+            persist()
+        }
+    }
     @Published var dockSettings: DockSettings {
         didSet { persist() }
     }
@@ -63,6 +70,7 @@ final class AppEnvironment: ObservableObject {
     @Published var permissionStates: [PermissionState] = []
     @Published var windows: [WindowInfo] = []
     @Published var commandResults: [CommandResult] = []
+    @Published var notchFileTrayItems: [URL] = []
     @Published var wallpaperStates: [ScreenWallpaperState] = []
     @Published var safetyConfirmationsEnabled: Bool {
         didSet { persist() }
@@ -94,6 +102,7 @@ final class AppEnvironment: ObservableObject {
     let presetRunner = PresetRunner()
     let rollbackManager = RollbackManager()
     let notchIslandActivityCenter = NotchIslandActivityCenter()
+    let liveIslandCoordinator = LiveIslandCoordinator()
 
     private let configurationURL: URL
     private var isLoading = true
@@ -107,6 +116,7 @@ final class AppEnvironment: ObservableObject {
 
         let loaded = Self.loadConfiguration(from: configurationURL)
         notchConfig = loaded?.notchConfig ?? .default
+        liveIslandSettings = loaded?.liveIslandSettings ?? .default
         dockSettings = loaded?.dockSettings ?? .default
         pinnedFolders = loaded?.pinnedFolders ?? []
         wallpaperPresets = loaded?.wallpaperPresets ?? []
@@ -124,6 +134,9 @@ final class AppEnvironment: ObservableObject {
 
         isLoading = false
         notchIslandActivityCenter.presentationState = notchConfig.enabled ? notchConfig.presentationState : .hidden
+        liveIslandCoordinator.configureDefaultProviders(activityCenter: notchIslandActivityCenter)
+        liveIslandCoordinator.updateSettings(liveIslandSettings)
+        liveIslandCoordinator.start()
         refreshPermissions()
         refreshWallpaperStates()
         startNotchIslandObservation()
@@ -182,6 +195,29 @@ final class AppEnvironment: ObservableObject {
         append(.success("Notch Island", "Reset island layout values."))
     }
 
+    func addNotchFileTrayItem(_ url: URL) {
+        guard url.isFileURL else { return }
+        notchFileTrayItems.removeAll { $0 == url }
+        notchFileTrayItems.insert(url, at: 0)
+        notchFileTrayItems = Array(notchFileTrayItems.prefix(12))
+        notchIslandActivityCenter.showActivity(
+            kind: .folder,
+            title: "Tray",
+            message: url.lastPathComponent,
+            symbolName: "tray.and.arrow.down",
+            duration: notchConfig.autoCollapseDelay
+        )
+    }
+
+    func clearNotchFileTray() {
+        notchFileTrayItems = []
+        append(.success("Tray", "Cleared temporary tray."))
+    }
+
+    func revealNotchFileTrayItem(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     func addPinnedFolder() {
         guard let url = fileAccessPermissionService.chooseFolder() else { return }
         switch folderAccessStore.makeShortcut(for: url) {
@@ -199,6 +235,13 @@ final class AppEnvironment: ObservableObject {
     }
 
     func openFolder(_ shortcut: FolderShortcut) {
+        notchIslandActivityCenter.showActivity(
+            kind: .folder,
+            title: "Open Folder",
+            message: shortcut.name,
+            symbolName: "folder",
+            duration: notchConfig.autoCollapseDelay
+        )
         append(folderAccessStore.open(shortcut))
     }
 
@@ -213,6 +256,13 @@ final class AppEnvironment: ObservableObject {
     }
 
     func applyWallpaperPreset(_ preset: WallpaperPreset) async {
+        notchIslandActivityCenter.showActivity(
+            kind: .wallpaper,
+            title: "Wallpaper Apply",
+            message: preset.name,
+            symbolName: "photo",
+            duration: nil
+        )
         append(await wallpaperService.apply(preset))
         refreshWallpaperStates()
     }
@@ -252,16 +302,37 @@ final class AppEnvironment: ObservableObject {
     }
 
     func applyDockSettings() async {
+        notchIslandActivityCenter.showActivity(
+            kind: .dock,
+            title: "Dock Apply",
+            message: "Applying Dock settings",
+            symbolName: "dock.rectangle",
+            duration: nil
+        )
         let results = await dockSettingsService.apply(dockSettings, experimentalTweaksEnabled: experimentalDockTweaksEnabled)
         results.forEach(append)
     }
 
     func resetDockSettings() async {
+        notchIslandActivityCenter.showActivity(
+            kind: .dock,
+            title: "Dock Reset",
+            message: "Restoring Dock defaults",
+            symbolName: "dock.rectangle",
+            duration: nil
+        )
         let results = await dockSettingsService.resetToSystemDefaults(experimentalTweaksEnabled: experimentalDockTweaksEnabled)
         results.forEach(append)
     }
 
     func createFolderTemplate(named template: FolderTemplate, in shortcut: FolderShortcut) {
+        notchIslandActivityCenter.showActivity(
+            kind: .folder,
+            title: "Folder Template",
+            message: template.label,
+            symbolName: "folder.badge.plus",
+            duration: nil
+        )
         let result = folderAccessStore.withResolvedURL(shortcut) { root in
             let folderName = "\(template.label) \(Date().formatted(.dateTime.year().month(.twoDigits).day(.twoDigits)))"
             let rootURL = root.appendingPathComponent(folderName, isDirectory: true)
@@ -285,6 +356,13 @@ final class AppEnvironment: ObservableObject {
     }
 
     func applyFileRule(_ rule: FileRule, dryRun: Bool = false) -> [CommandResult] {
+        notchIslandActivityCenter.showActivity(
+            kind: .fileRule,
+            title: dryRun || rule.dryRunOnly ? "File Rule Preview" : "File Rule Apply",
+            message: rule.name,
+            symbolName: "line.3.horizontal.decrease.circle",
+            duration: nil
+        )
         switch withFileRuleAccess(rule, perform: { sourceURL, destinationResolver in
             let previews = fileOrganizerService.preview(rule: rule, sourceURL: sourceURL, destinationResolver: destinationResolver)
             return fileOrganizerService.apply(previews: previews, rule: rule, dryRun: dryRun)
@@ -452,6 +530,7 @@ final class AppEnvironment: ObservableObject {
 
     func resetPreferences() {
         notchConfig = .default
+        liveIslandSettings = .default
         dockSettings = .default
         pinnedFolders = []
         wallpaperPresets = []
@@ -460,6 +539,30 @@ final class AppEnvironment: ObservableObject {
         safetyConfirmationsEnabled = true
         experimentalDockTweaksEnabled = false
         append(.success("Reset Preferences", "MacForge preferences were reset. System settings were not changed."))
+    }
+
+    func chooseLiveIslandDownloadsFolder() {
+        guard let url = fileAccessPermissionService.chooseFolder() else { return }
+        do {
+            try liveIslandSettings.setDownloadsFolder(url)
+            append(.success("Downloads Watcher", "Watching \(url.lastPathComponent)."))
+        } catch {
+            append(.failure("Downloads Watcher", "Could not save folder access.", details: [error.localizedDescription]))
+        }
+    }
+
+    func clearLiveIslandDownloadsFolder() {
+        liveIslandSettings.clearDownloadsFolder()
+        append(.success("Downloads Watcher", "Downloads folder access was cleared."))
+    }
+
+    func startLiveIslandTimer(minutes: Int) {
+        liveIslandCoordinator.startTimer(minutes: minutes)
+        append(.success("Timer", "Started \(minutes)-minute timer."))
+    }
+
+    func showLiveIslandTestSnapshot(kind: LiveIslandSnapshotKind) {
+        liveIslandCoordinator.showTestSnapshot(kind: kind)
     }
 
     func append(_ result: CommandResult) {
@@ -568,6 +671,31 @@ final class AppEnvironment: ObservableObject {
             }
             .store(in: &cancellables)
 
+        liveIslandCoordinator.$currentSnapshot
+            .removeDuplicates()
+            .sink { [weak self] snapshot in
+                Task { @MainActor in
+                    guard let self,
+                          self.notchConfig.enabled,
+                          self.notchConfig.preferredStyle == .island else {
+                        return
+                    }
+
+                    if snapshot.kind != .idle,
+                       snapshot.priority >= .backgroundMedia,
+                       self.notchIslandActivityCenter.presentationState == .collapsed {
+                        self.notchIslandActivityCenter.presentationState = .compact
+                    } else if snapshot.kind == .idle,
+                              self.notchIslandActivityCenter.presentationState == .compact,
+                              self.notchIslandActivityCenter.currentActivity == nil {
+                        self.notchIslandActivityCenter.collapse()
+                    } else {
+                        self.updateNotchShelf()
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
@@ -589,6 +717,7 @@ final class AppEnvironment: ObservableObject {
     private func currentConfigurationData() throws -> Data {
         try JSONEncoder.macForge.encode(MacForgeConfiguration(
             notchConfig: notchConfig,
+            liveIslandSettings: liveIslandSettings,
             dockSettings: dockSettings,
             pinnedFolders: pinnedFolders,
             wallpaperPresets: wallpaperPresets,
@@ -602,6 +731,7 @@ final class AppEnvironment: ObservableObject {
 
     private func apply(_ configuration: MacForgeConfiguration) {
         notchConfig = configuration.notchConfig
+        liveIslandSettings = configuration.liveIslandSettings ?? .default
         dockSettings = configuration.dockSettings
         pinnedFolders = configuration.pinnedFolders
         wallpaperPresets = configuration.wallpaperPresets

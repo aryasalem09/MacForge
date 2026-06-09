@@ -13,6 +13,7 @@ MacForge must always favor public Apple APIs, explicit user consent, previews be
 - `Core/Permissions/` owns Accessibility, file access, automation notes, and launch-at-login status.
 - `Core/Windowing/` owns Accessibility window enumeration and pure layout math.
 - `Core/Notch/` owns safe-area screen detection and the floating `NSPanel`.
+- `Core/LiveIsland/` owns provider-based live media, browser hints, downloads, timers, task snapshots, privacy redaction, and priority arbitration.
 - `Core/Dock/` owns Dock command construction and process execution.
 - `Core/Desktop/` owns wallpaper presets through `NSWorkspace`.
 - `Core/Files/` owns bookmarks, folder access, file rules, duplicate scanning, bulk rename, and Trash moves.
@@ -67,6 +68,10 @@ Keep the app buildable after every Codex run. If you touch source or project wir
 - Keep geometry and state tests hardware-independent by using synthetic screen metrics.
 - Do not call the feature "Dynamic Island" in app UI; use "Notch Island" or "Notch Shelf."
 - Do not copy Apple assets or exact proprietary visual design.
+- Live Island providers must remain honest about source quality. Apple Music, Spotify, and QuickTime may use public Automation/AppleScript with macOS consent. Browser media must stay best-effort unless a user-installed companion extension supplies Media Session API metadata.
+- Do not use private media frameworks such as MediaRemote, screen recording, app injection, or hidden event taps for now-playing data.
+- Downloads activity must be limited to the user-selected folder bookmark and temporary download file detection.
+- Privacy Mode must redact track/video titles, artist names, and artwork.
 
 ## App Intents
 

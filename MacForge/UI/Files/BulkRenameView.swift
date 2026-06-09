@@ -99,6 +99,13 @@ struct BulkRenameView: View {
     }
 
     private func applyRename() {
+        environment.notchIslandActivityCenter.showActivity(
+            kind: .bulkRename,
+            title: "Bulk Rename",
+            message: "Renaming \(previews.filter(\.changed).count) file(s)",
+            symbolName: "textformat",
+            duration: nil
+        )
         let originalPreviews = previews
         let results = environment.bulkRenameEngine.apply(previews: previews)
         results.forEach(environment.append)

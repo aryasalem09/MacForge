@@ -1,5 +1,89 @@
 # MacForge Development Report
 
+## v0.26 NotchNook-Style Live Island Parity
+
+Date: June 9, 2026
+
+### Summary
+
+MacForge now targets practical NotchNook-style user-visible parity for the Notch Island while preserving the public-API safety model. The island has provider-based live media, downloads, timers, MacForge task activity, privacy controls, diagnostics, swipe gestures, and a temporary drop tray.
+
+### What Changed
+
+- Added `Core/LiveIsland` with `LiveIslandProvider`, `LiveIslandCoordinator`, `LiveIslandSnapshot`, `LiveIslandSettings`, and `LiveIslandPriority`.
+- Added Apple Music and Spotify providers using public Automation/AppleScript for metadata and play/pause/next/previous.
+- Added QuickTime best-effort video detection and play/pause through public Automation.
+- Added opt-in browser media hints for Safari, Chrome, Brave, and Edge using active tab title/URL only.
+- Added generic media app presence detection for known media apps when metadata is not available.
+- Added `DownloadsProvider` for user-selected folder bookmarks watching `.download`, `.crdownload`, and `.part`.
+- Added local 5/10/25-minute timers with countdown snapshots.
+- Added MacForge task snapshots for duplicate scan, file rule, bulk rename, preset, wallpaper, Dock, window, folder, tray, and error activity.
+- Added `MacForgeBrowserBridge` scaffold with extension notes, schema, and a minimal user-triggered background script for future Media Session metadata.
+- Updated Notch Island UI with provider-aware compact/expanded cards, playback controls, timer controls, diagnostics, test providers, swipe gestures, privacy mode, and a temporary drop tray.
+- Added `NOTCH_APP_PARITY.md` comparing MacForge against NotchNook/MediaMate/Alcove-style behavior and marking what is implemented, best-effort, extension-dependent, or blocked safely.
+
+### Safety Notes
+
+- No private frameworks such as MediaRemote.
+- No root, SIP bypass, code injection, screen recording, or hidden persistence.
+- Browser hints are opt-in and use only active tab title/URL after Automation consent.
+- Downloads watching is limited to a user-selected security-scoped bookmark.
+- The browser bridge is scaffolded only; it is not registered as a hidden native messaging host.
+
+### Tests Added
+
+- `LiveIslandTests`
+  - media beats idle
+  - active task beats media
+  - error beats media temporarily
+  - media returns after task expiration
+  - privacy mode redacts media metadata
+  - disabled provider ignored
+  - download temp files detected
+  - Apple Music parser with mock script output
+  - Spotify parser with mock script output
+  - browser bridge message parser
+  - settings encode/decode
+  - Classic Shelf still available
+
+### Known Limitations
+
+- Universal exact media metadata for every app is not available through public macOS APIs.
+- Browser media is best-effort unless a user-installed companion extension provides Media Session API messages.
+- QuickTime/video metadata depends on what the app exposes through public Automation.
+- Download progress is indeterminate unless a future source supplies expected byte counts.
+- Weather/calendar widgets are not included in this sprint.
+
+### Manual Testing Checklist
+
+- Enable Notch Island and confirm the idle state is a tiny black pill.
+- Hover, click, swipe down, and swipe up over the island to confirm expansion/collapse.
+- Play Apple Music and Spotify, grant Automation if prompted, and confirm title/artist/progress plus play/pause/next/previous.
+- Open a QuickTime movie and confirm best-effort video title/playback state.
+- Enable browser hints, grant Automation for a browser, and confirm YouTube/Netflix-like tabs show as possible browser media.
+- Select a Downloads folder and confirm `.download`, `.crdownload`, or `.part` files appear as download activity.
+- Start 5, 10, and 25 minute timers from the expanded island.
+- Drag files into the expanded island tray, reveal one, and clear the tray.
+- Run window, Dock, wallpaper, preset, file-rule, bulk-rename, duplicate-scan, folder, and error paths and confirm they temporarily override media.
+- Toggle Privacy Mode and confirm titles/artists/artwork are hidden.
+- Toggle Classic Shelf and confirm the older shelf mode still works.
+
+### Verification
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' clean build
+```
+
+Result: `** CLEAN SUCCEEDED **` and `** BUILD SUCCEEDED **`
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test
+```
+
+Result: `** TEST SUCCEEDED **`
+
+The final test run executed 62 unit tests. Live Island tests use fake providers and mock parser output and do not require real Apple Music, Spotify, browsers, downloads permissions, Accessibility permission, Dock mutation, wallpaper mutation, or Shortcuts execution.
+
 ## v0.25 Notch Island Sprint
 
 Date: June 9, 2026

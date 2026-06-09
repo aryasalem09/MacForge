@@ -113,6 +113,9 @@ final class NotchIslandActivityCenter: ObservableObject {
         if title.contains("wallpaper") {
             return .wallpaper
         }
+        if title.contains("dock") {
+            return .dock
+        }
         if title.contains("permission") || title.contains("accessibility") {
             return .permission
         }
@@ -142,6 +145,8 @@ final class NotchIslandActivityCenter: ObservableObject {
             return "folder"
         case .wallpaper:
             return "photo"
+        case .dock:
+            return "dock.rectangle"
         case .permission:
             return "lock.shield"
         case .shortcut:

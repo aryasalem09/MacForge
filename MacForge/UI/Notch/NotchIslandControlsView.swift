@@ -1,7 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct NotchIslandControlsView: View {
     @EnvironmentObject private var environment: AppEnvironment
+    @State private var isDropTargeted = false
 
     private var accessibilityGranted: Bool {
         environment.permissionStates.first { $0.id == "accessibility" }?.status == .granted
@@ -31,6 +33,58 @@ struct NotchIslandControlsView: View {
                     Label("Accessibility missing", systemImage: "lock.shield")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                }
+            }
+
+            if environment.liveIslandSettings.timersEnabled {
+                controlSection(title: "Timers") {
+                    HStack(spacing: 8) {
+                        timerButton(minutes: 5)
+                        timerButton(minutes: 10)
+                        timerButton(minutes: 25)
+                    }
+                }
+            }
+
+            controlSection(title: "Tray") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("Drop files here", systemImage: "tray.and.arrow.down")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.72))
+                        Spacer()
+                        Button {
+                            environment.clearNotchFileTray()
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 24, height: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(environment.notchFileTrayItems.isEmpty ? 0.34 : 0.82))
+                        .disabled(environment.notchFileTrayItems.isEmpty)
+                        .help("Clear tray")
+                        .accessibilityLabel("Clear tray")
+                    }
+                    .padding(8)
+                    .background(isDropTargeted ? .white.opacity(0.16) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted, perform: handleDrop)
+
+                    if !environment.notchFileTrayItems.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(environment.notchFileTrayItems, id: \.self) { url in
+                                    Button {
+                                        environment.revealNotchFileTrayItem(url)
+                                    } label: {
+                                        Label(url.lastPathComponent, systemImage: "doc")
+                                            .lineLimit(1)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .help(url.path)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -96,6 +150,41 @@ struct NotchIslandControlsView: View {
         .disabled(!accessibilityGranted)
         .help(layout.label)
         .accessibilityLabel(layout.label)
+    }
+
+    private func timerButton(minutes: Int) -> some View {
+        Button {
+            environment.startLiveIslandTimer(minutes: minutes)
+        } label: {
+            Label("\(minutes) min", systemImage: "timer")
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .help("Start \(minutes)-minute timer")
+        .accessibilityLabel("Start \(minutes)-minute timer")
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url: URL?
+                if let itemURL = item as? URL {
+                    url = itemURL
+                } else if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else {
+                    url = nil
+                }
+
+                if let url {
+                    DispatchQueue.main.async {
+                        environment.addNotchFileTrayItem(url)
+                    }
+                }
+            }
+        }
+
+        return true
     }
 
     private func controlSection<Content: View>(

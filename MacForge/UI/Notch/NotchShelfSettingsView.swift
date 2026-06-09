@@ -81,6 +81,8 @@ struct NotchShelfSettingsView: View {
                 }
             }
 
+            liveIslandSourceSection
+
             Section("Island Size") {
                 slider("Collapsed width", value: $environment.notchConfig.collapsedWidth, range: 160...260, step: 2, suffix: "px") {
                     Int(environment.notchConfig.collapsedWidth)
@@ -103,6 +105,73 @@ struct NotchShelfSettingsView: View {
             }
 
             widgetSection
+        }
+    }
+
+    private var liveIslandSourceSection: some View {
+        Group {
+            Section {
+                Toggle("Enable Live Island Sources", isOn: $environment.liveIslandSettings.enableLiveIslandSources)
+                Toggle("Apple Music", isOn: $environment.liveIslandSettings.appleMusicEnabled)
+                Toggle("Spotify", isOn: $environment.liveIslandSettings.spotifyEnabled)
+                Toggle("QuickTime/video", isOn: $environment.liveIslandSettings.quickTimeEnabled)
+                Toggle("Browser media hints", isOn: $environment.liveIslandSettings.browserMediaHintsEnabled)
+                Toggle("Downloads watcher", isOn: $environment.liveIslandSettings.downloadsWatcherEnabled)
+                Toggle("Timers", isOn: $environment.liveIslandSettings.timersEnabled)
+                Toggle("Keep media visible while playing", isOn: $environment.liveIslandSettings.keepMediaVisibleWhilePlaying)
+                Toggle("Show artwork", isOn: $environment.liveIslandSettings.showArtwork)
+                Toggle("Privacy Mode", isOn: $environment.liveIslandSettings.privacyMode)
+                Toggle("Provider diagnostics", isOn: $environment.liveIslandSettings.providerDiagnosticsEnabled)
+            } header: {
+                Text("Live Island Sources")
+            } footer: {
+                Text("Music, Spotify, and QuickTime use public Automation with macOS consent. Browser hints use active tab title and URL only when enabled.")
+            }
+
+            Section("Downloads") {
+                HStack {
+                    Text(environment.liveIslandSettings.downloadsFolderName ?? "No folder selected")
+                        .foregroundStyle(environment.liveIslandSettings.downloadsFolderName == nil ? .secondary : .primary)
+                    Spacer()
+                    Button("Choose", systemImage: "folder") {
+                        environment.chooseLiveIslandDownloadsFolder()
+                    }
+                    Button("Clear", systemImage: "xmark.circle") {
+                        environment.clearLiveIslandDownloadsFolder()
+                    }
+                    .disabled(environment.liveIslandSettings.downloadsFolderBookmark == nil)
+                }
+            }
+
+            Section("Test Providers") {
+                HStack {
+                    Button("Music", systemImage: "music.note") {
+                        environment.showLiveIslandTestSnapshot(kind: .music)
+                    }
+                    Button("Download", systemImage: "arrow.down.circle") {
+                        environment.showLiveIslandTestSnapshot(kind: .download)
+                    }
+                    Button("Task", systemImage: "sparkles") {
+                        environment.showLiveIslandTestSnapshot(kind: .task)
+                    }
+                    Button("Error", systemImage: "exclamationmark.triangle") {
+                        environment.showLiveIslandTestSnapshot(kind: .error)
+                    }
+                }
+            }
+
+            if environment.liveIslandSettings.providerDiagnosticsEnabled {
+                Section("Provider Diagnostics") {
+                    ForEach(environment.liveIslandCoordinator.diagnostics) { diagnostic in
+                        HStack {
+                            Text(diagnostic.providerName)
+                            Spacer()
+                            Text(diagnostic.status)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
     }
 

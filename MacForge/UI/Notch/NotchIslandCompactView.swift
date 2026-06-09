@@ -1,27 +1,58 @@
+import AppKit
 import SwiftUI
 
 struct NotchIslandCompactView: View {
-    @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
+    @EnvironmentObject private var environment: AppEnvironment
+    @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: activityCenter.currentActivity?.symbolName ?? "checkmark.circle.fill")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(activityCenter.currentActivity?.isError == true ? .orange : .mint)
-                .frame(width: 20)
+        let snapshot = liveIslandCoordinator.currentSnapshot
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(activityCenter.currentActivity?.title ?? "MacForge")
+        HStack(spacing: 10) {
+            LiveIslandIconView(snapshot: snapshot, size: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(snapshot.kind == .idle ? "MacForge" : snapshot.title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(activityCenter.currentActivity?.message ?? "Ready")
+                Text(snapshot.kind == .idle ? "Ready" : snapshot.subtitle)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
+
+                if let progress = snapshot.progress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .controlSize(.mini)
+                        .tint(snapshot.isError ? .orange : .mint)
+                } else if snapshot.kind == .download {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .controlSize(.mini)
+                        .tint(.mint)
+                }
             }
 
             Spacer(minLength: 0)
+
+            if !snapshot.actions.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(snapshot.actions.prefix(3)) { action in
+                        Button {
+                            perform(action)
+                        } label: {
+                            Image(systemName: playbackSymbol(for: action, snapshot: snapshot))
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(action.isEnabled ? 0.88 : 0.34))
+                        .disabled(!action.isEnabled)
+                        .help(action.title)
+                        .accessibilityLabel(action.title)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -33,6 +64,50 @@ struct NotchIslandCompactView: View {
                         .strokeBorder(.white.opacity(0.10), lineWidth: 1)
                 )
         }
-        .accessibilityLabel(activityCenter.currentActivity?.title ?? "Compact Notch Island")
+        .accessibilityLabel(snapshot.kind == .idle ? "Compact Notch Island" : snapshot.title)
+    }
+
+    private func perform(_ action: LiveIslandAction) {
+        Task {
+            let result = await liveIslandCoordinator.performCurrentAction(action.kind)
+            if !result.success {
+                environment.append(result)
+            }
+        }
+    }
+
+    private func playbackSymbol(for action: LiveIslandAction, snapshot: LiveIslandSnapshot) -> String {
+        if action.kind == .playPause, snapshot.playbackState == .playing {
+            return "pause.fill"
+        }
+        if action.kind == .playPause {
+            return "play.fill"
+        }
+        return action.symbolName
+    }
+}
+
+struct LiveIslandIconView: View {
+    var snapshot: LiveIslandSnapshot
+    var size: CGFloat
+
+    var body: some View {
+        ZStack {
+            if let bundleIdentifier = snapshot.bundleIdentifier,
+               let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }),
+               let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                Image(systemName: snapshot.symbolName)
+                    .font(.system(size: max(size * 0.52, 12), weight: .semibold))
+                    .foregroundStyle(snapshot.isError ? .orange : .mint)
+                    .frame(width: size, height: size)
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
     }
 }

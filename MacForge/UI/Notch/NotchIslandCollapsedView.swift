@@ -2,21 +2,22 @@ import SwiftUI
 
 struct NotchIslandCollapsedView: View {
     @EnvironmentObject private var environment: AppEnvironment
-    @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
+    @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: activityCenter.currentActivity?.symbolName ?? "sparkle")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(activityCenter.currentActivity?.isError == true ? .orange : .white.opacity(0.92))
+            if liveIslandCoordinator.currentSnapshot.kind != .idle {
+                Image(systemName: liveIslandCoordinator.currentSnapshot.symbolName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(liveIslandCoordinator.currentSnapshot.isError ? .orange : .white.opacity(0.92))
 
-            if environment.notchConfig.showClock {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text(context.date, style: .time)
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.82))
+                if let progress = liveIslandCoordinator.currentSnapshot.progress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .controlSize(.mini)
+                        .tint(liveIslandCoordinator.currentSnapshot.isError ? .orange : .mint)
+                        .frame(width: 42)
                 }
-                .frame(width: 46)
             }
         }
         .padding(.horizontal, 13)

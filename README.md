@@ -17,6 +17,8 @@ This project was created and locally verified on:
 
 - Menu bar quick actions for common MacForge workflows.
 - A Notch Island mode with camera-anchored collapsed, compact activity, and expanded panel states using public `NSScreen` geometry and `NSPanel`.
+- Provider-based Live Island sources for Apple Music, Spotify, QuickTime, browser media hints, downloads, timers, MacForge tasks, and recent command results.
+- NotchNook-style practical interactions: idle pill, hover/click/swipe expansion, media controls where supported, temporary drag-and-drop tray, and expanded widgets.
 - A Classic Shelf mode for the older wide top-center HUD.
 - Accessibility-based window layouts for the focused window.
 - Experimental local Dock settings through whitelisted `/usr/bin/defaults` and `/usr/bin/killall Dock` commands.
@@ -34,6 +36,8 @@ This project was created and locally verified on:
 - It does not use private APIs, root escalation, kernel extensions, or SIP bypasses.
 - It cannot read a private physical camera cutout rectangle or become a true OS-level iPhone island.
 - It cannot draw into pixels hidden by the MacBook camera cutout; interactive controls are positioned below the safe camera/menu-bar area.
+- It cannot guarantee exact universal now-playing metadata for every app without private APIs or unsafe injection.
+- Browser media is best-effort unless the user installs a future companion extension bridge.
 - Mac App Store distribution would need Experimental Dock Tweaks disabled or carefully redesigned.
 
 MacForge also does not permanently delete files. Destructive file workflows must move files to Trash only, with confirmation and a `CommandResult`.
@@ -45,6 +49,8 @@ MacForge also does not permanently delete files. Destructive file workflows must
 - Wallpaper images: granted per picked image before a wallpaper preset can apply.
 - Launch at Login: optional, managed through public Service Management APIs.
 - Experimental Dock Tweaks: optional in-app safety switch required before Dock commands run.
+- Automation: optional, requested by macOS only when Live Island sources control or read Apple Music, Spotify, QuickTime, or enabled browser hints.
+- Downloads watcher: optional, limited to the user-selected folder saved as a security-scoped bookmark.
 
 ## Build Instructions
 
@@ -83,6 +89,8 @@ GitHub Actions runs build and test on `macos-26` so CI has an Xcode 26 toolchain
 - Dock commands are structured `SafeCommand` values, never arbitrary shell strings.
 - Dock execution is blocked unless Experimental Dock Tweaks is enabled.
 - Notch Island geometry uses public `NSScreen.safeAreaInsets`, `auxiliaryTopLeftArea`, and `auxiliaryTopRightArea` where available, with safe top-center fallbacks.
+- Live Island media providers use public Automation/AppleScript only. They do not use private MediaRemote APIs, code injection, SIP bypasses, screen recording, or root behavior.
+- Browser hints read active tab title/URL only after the user enables the source and macOS grants Automation consent. The `MacForgeBrowserBridge` scaffold documents a future opt-in Media Session API extension path.
 - File rules default to dry-run preview and require confirmation before applying changes.
 - Bulk Rename shows old-to-new previews, blocks collisions, and requires confirmation before applying.
 - Duplicate Finder groups by size first, hashes candidate duplicates, and never deletes files.
@@ -99,6 +107,8 @@ GitHub Actions runs build and test on `macos-26` so CI has an Xcode 26 toolchain
 - Shortcuts support is limited to app-observed request wiring for selected actions; richer AppEntity selection is future work.
 - Finder tag writing depends on SDK and OS availability and can be refused by protected or cloud-backed locations.
 - Notch Island placement is main-display MVP. External displays fall back to a top-center island when notch geometry is unavailable.
+- The app now aims for NotchNook-style user-visible parity where public APIs make it feasible, but universal exact media detection remains best-effort.
+- Browser media controls, artwork, and exact playback position require a user-installed companion extension bridge that is scaffolded but not registered in this sprint.
 - The app creates an original MacForge Notch Island experience inspired by compact activity surfaces; it does not copy Apple assets or claim to be an OS-level Dynamic Island.
 
 ## Distribution Notes
@@ -112,6 +122,8 @@ Developer ID or local builds are recommended for the full feature set. A Mac App
 - Multi-display Notch Island placement controls.
 - Richer file-rule editor with destination validation and better action descriptions.
 - Optional signed release configuration.
+- Browser bridge native messaging host registration and extension packaging.
+- Additional widgets such as weather/calendar if implemented with explicit user consent.
 - Localization and accessibility polish.
 
 ## Manual Testing Checklist
@@ -120,6 +132,12 @@ Developer ID or local builds are recommended for the full feature set. A Mac App
 - Toggle the Notch Shelf and confirm buttons are clickable by default.
 - In Notch Island mode, confirm the idle state is a small black pill rather than a wide toolbar.
 - Click or hover the island and confirm it expands downward from the camera area.
+- Swipe down/up over the island and confirm it expands/collapses; swipe left/right during Apple Music or Spotify playback to test next/previous.
+- Start Apple Music or Spotify, grant Automation if macOS asks, and confirm title, artist, progress, and controls appear.
+- Enable Browser media hints, grant Automation for the browser, and confirm media-like tabs show as possible browser media without claiming exact playback state.
+- Choose a Downloads folder in Notch settings, create or observe a `.download`, `.crdownload`, or `.part` file, and confirm download activity appears.
+- Start 5/10/25-minute timers from the expanded island and confirm countdown/progress display.
+- Drag files into the expanded island tray, reveal them, then clear the tray.
 - Run a window action, preset, wallpaper apply, file rule, duplicate scan, or folder open and confirm a compact activity appears then auto-collapses.
 - On an external display, confirm the island uses a top-center fallback and still supports collapsed/expanded states.
 - Enable click-through mode and confirm the warning matches the behavior.

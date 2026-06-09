@@ -52,6 +52,7 @@ final class NotchShelfWindowController {
                 NotchIslandView()
                     .environmentObject(environment)
                     .environmentObject(environment.notchIslandActivityCenter)
+                    .environmentObject(environment.liveIslandCoordinator)
             )
         }
 
