@@ -67,6 +67,14 @@ struct NotchShelfSettingsView: View {
                 Toggle("Expand on click", isOn: $environment.notchConfig.expandOnClick)
                 Toggle("Main display only", isOn: $environment.notchConfig.mainDisplayOnly)
                 HStack {
+                    Slider(value: $environment.notchConfig.islandVerticalOffset, in: -24...24, step: 1) {
+                        Text("Placement nudge")
+                    }
+                    Text("\(environment.notchConfig.islandVerticalOffset, specifier: "%.0f") px")
+                        .frame(width: 70, alignment: .trailing)
+                }
+                Toggle("Show placement debug overlay", isOn: $environment.notchConfig.showPlacementDebugOverlay)
+                HStack {
                     Slider(value: $environment.notchConfig.autoCollapseDelay, in: 1...10, step: 0.5) {
                         Text("Auto-collapse")
                     }
@@ -143,32 +151,45 @@ struct NotchShelfSettingsView: View {
                 }
             }
 
-            Section("Test Providers") {
-                HStack {
-                    Button("Music", systemImage: "music.note") {
-                        environment.showLiveIslandTestSnapshot(kind: .music)
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button("Run Live Island Self-Test", systemImage: "waveform.path.ecg") {
+                            environment.runLiveIslandSelfTest()
+                        }
+                        Button("Test Music Provider", systemImage: "music.note") {
+                            Task { await environment.testAppleMusicProvider() }
+                        }
+                        Button("Open Music", systemImage: "arrow.up.right.square") {
+                            environment.openMusicApp()
+                        }
                     }
-                    Button("Download", systemImage: "arrow.down.circle") {
-                        environment.showLiveIslandTestSnapshot(kind: .download)
-                    }
-                    Button("Task", systemImage: "sparkles") {
-                        environment.showLiveIslandTestSnapshot(kind: .task)
-                    }
-                    Button("Error", systemImage: "exclamationmark.triangle") {
-                        environment.showLiveIslandTestSnapshot(kind: .error)
+
+                    HStack {
+                        Button("Open Automation Settings", systemImage: "lock.shield") {
+                            environment.openAutomationSettings()
+                        }
+                        Button("Download", systemImage: "arrow.down.circle") {
+                            environment.showLiveIslandTestSnapshot(kind: .download)
+                        }
+                        Button("Task", systemImage: "sparkles") {
+                            environment.showLiveIslandTestSnapshot(kind: .task)
+                        }
+                        Button("Error", systemImage: "exclamationmark.triangle") {
+                            environment.showLiveIslandTestSnapshot(kind: .error)
+                        }
                     }
                 }
+            } header: {
+                Text("Test Providers")
+            } footer: {
+                Text("To reset the Automation prompt manually: quit MacForge, run `tccutil reset AppleEvents com.aryasalem.MacForge`, relaunch MacForge, then allow Music when prompted.")
             }
 
             if environment.liveIslandSettings.providerDiagnosticsEnabled {
                 Section("Provider Diagnostics") {
                     ForEach(environment.liveIslandCoordinator.diagnostics) { diagnostic in
-                        HStack {
-                            Text(diagnostic.providerName)
-                            Spacer()
-                            Text(diagnostic.status)
-                                .foregroundStyle(.secondary)
-                        }
+                        providerDiagnosticRow(diagnostic)
                     }
                 }
             }
@@ -229,5 +250,54 @@ struct NotchShelfSettingsView: View {
             Text(verbatim: "\(displayValue()) \(suffix)")
                 .frame(width: 74, alignment: .trailing)
         }
+    }
+
+    private func providerDiagnosticRow(_ diagnostic: LiveIslandProviderDiagnostic) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label(diagnostic.providerName, systemImage: diagnostic.permissionNeeded ? "lock.shield" : "dot.radiowaves.left.and.right")
+                Spacer()
+                Text(diagnostic.status)
+                    .foregroundStyle(diagnostic.permissionNeeded ? .orange : .secondary)
+            }
+
+            Text(diagnostic.appStatus)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let lastPollAt = diagnostic.lastPollAt {
+                Text("Last poll: \(lastPollAt.formatted(date: .omitted, time: .standard))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let lastSuccessAt = diagnostic.lastSuccessAt {
+                Text("Last success: \(lastSuccessAt.formatted(date: .omitted, time: .standard))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let title = diagnostic.snapshotTitle {
+                Text([title, diagnostic.snapshotSubtitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " - "))
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+
+            if let rawResultSummary = diagnostic.rawResultSummary {
+                Text(rawResultSummary)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if let lastError = diagnostic.lastError {
+                Text(lastError)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

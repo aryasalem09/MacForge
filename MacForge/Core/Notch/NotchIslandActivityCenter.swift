@@ -74,6 +74,13 @@ final class NotchIslandActivityCenter: ObservableObject {
         presentationState = .hidden
     }
 
+    func clearActivity() {
+        currentActivity = nil
+        if presentationState == .compact {
+            presentationState = .collapsed
+        }
+    }
+
     func autoCollapseIfNeeded(now: Date? = nil) {
         guard let activity = currentActivity,
               let expiresAt = activity.expiresAt else {

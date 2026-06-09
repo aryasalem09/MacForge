@@ -32,11 +32,37 @@ final class DockCommandBuilderTests: XCTestCase {
         }
     }
 
+    func testBuildRestoreManagedKeysForcesAutohideOff() throws {
+        let commands = try DockCommandBuilder().buildRestoreManagedKeysCommands()
+
+        XCTAssertTrue(commands.contains {
+            $0.executablePath == DockCommandBuilder.defaultsPath &&
+            $0.arguments == ["write", DockCommandBuilder.dockDomain, "autohide", "-bool", "false"]
+        })
+        XCTAssertTrue(commands.contains {
+            $0.arguments == ["delete", DockCommandBuilder.dockDomain, "autohide-delay"]
+        })
+        XCTAssertEqual(commands.last?.arguments, ["Dock"])
+        for command in commands {
+            XCTAssertNoThrow(try DockCommandBuilder().validate(command))
+        }
+    }
+
     func testRejectsMalformedDefaultsCommand() {
         let command = SafeCommand(
             executablePath: DockCommandBuilder.defaultsPath,
             arguments: ["write", "com.apple.finder", "AppleShowAllFiles", "-bool", "true"],
             summary: "Wrong domain"
+        )
+
+        XCTAssertThrowsError(try DockCommandBuilder().validate(command))
+    }
+
+    func testRejectsUnknownDockKey() {
+        let command = SafeCommand(
+            executablePath: DockCommandBuilder.defaultsPath,
+            arguments: ["write", DockCommandBuilder.dockDomain, "persistent-apps", "-array", ""],
+            summary: "Unsafe Dock mutation"
         )
 
         XCTAssertThrowsError(try DockCommandBuilder().validate(command))

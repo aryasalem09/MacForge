@@ -160,7 +160,14 @@ final class LiveIslandCoordinator: ObservableObject {
             nextDiagnostics.append(LiveIslandProviderDiagnostic(
                 id: testSnapshot.providerID,
                 providerName: testSnapshot.providerName,
+                isEnabled: true,
                 status: "Testing",
+                appStatus: "Self-test",
+                lastPollAt: now,
+                lastSuccessAt: now,
+                rawResultSummary: "Injected test snapshot",
+                snapshotTitle: testSnapshot.title,
+                snapshotSubtitle: testSnapshot.subtitle,
                 updatedAt: now
             ))
         } else {
@@ -172,7 +179,9 @@ final class LiveIslandCoordinator: ObservableObject {
                 nextDiagnostics.append(LiveIslandProviderDiagnostic(
                     id: provider.id,
                     providerName: provider.displayName,
+                    isEnabled: false,
                     status: "Disabled",
+                    appStatus: "Provider disabled",
                     updatedAt: now
                 ))
                 continue
@@ -181,17 +190,26 @@ final class LiveIslandCoordinator: ObservableObject {
             let snapshot = await provider.snapshot(settings: settings, now: now)
             if let snapshot, snapshot.isActive(at: now, settings: settings) {
                 candidates.append(snapshot)
-                nextDiagnostics.append(LiveIslandProviderDiagnostic(
+                nextDiagnostics.append(provider.latestDiagnostic ?? LiveIslandProviderDiagnostic(
                     id: provider.id,
                     providerName: provider.displayName,
+                    isEnabled: true,
                     status: "Active",
+                    appStatus: "Available",
+                    lastPollAt: now,
+                    lastSuccessAt: now,
+                    snapshotTitle: snapshot.title,
+                    snapshotSubtitle: snapshot.subtitle,
                     updatedAt: now
                 ))
             } else {
-                nextDiagnostics.append(LiveIslandProviderDiagnostic(
+                nextDiagnostics.append(provider.latestDiagnostic ?? LiveIslandProviderDiagnostic(
                     id: provider.id,
                     providerName: provider.displayName,
+                    isEnabled: true,
                     status: "Available",
+                    appStatus: "No active snapshot",
+                    lastPollAt: now,
                     updatedAt: now
                 ))
             }
@@ -211,6 +229,15 @@ final class LiveIslandCoordinator: ObservableObject {
 
         currentSnapshot = selected
         diagnostics = nextDiagnostics
+    }
+
+    func clearTransientState() {
+        testSnapshot = nil
+        timerProvider.cancelTimer()
+        let now = nowProvider()
+        currentSnapshot = .idle(at: now)
+        diagnostics = []
+        lastSwitchAt = now
     }
 
     static func selectSnapshot(

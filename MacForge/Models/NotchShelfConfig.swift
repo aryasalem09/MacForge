@@ -73,6 +73,8 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
     var expandOnHover: Bool
     var expandOnClick: Bool
     var mainDisplayOnly: Bool
+    var islandVerticalOffset: Double
+    var showPlacementDebugOverlay: Bool
     var customX: Double
     var customY: Double
 
@@ -105,6 +107,8 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnHover: true,
         expandOnClick: true,
         mainDisplayOnly: true,
+        islandVerticalOffset: 0,
+        showPlacementDebugOverlay: false,
         customX: 0,
         customY: 0
     )
@@ -138,6 +142,8 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnHover: Bool,
         expandOnClick: Bool,
         mainDisplayOnly: Bool,
+        islandVerticalOffset: Double,
+        showPlacementDebugOverlay: Bool,
         customX: Double,
         customY: Double
     ) {
@@ -169,6 +175,8 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         self.expandOnHover = expandOnHover
         self.expandOnClick = expandOnClick
         self.mainDisplayOnly = mainDisplayOnly
+        self.islandVerticalOffset = islandVerticalOffset
+        self.showPlacementDebugOverlay = showPlacementDebugOverlay
         self.customX = customX
         self.customY = customY
     }
@@ -205,6 +213,8 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnHover = try container.decodeIfPresent(Bool.self, forKey: .expandOnHover) ?? defaults.expandOnHover
         expandOnClick = try container.decodeIfPresent(Bool.self, forKey: .expandOnClick) ?? defaults.expandOnClick
         mainDisplayOnly = try container.decodeIfPresent(Bool.self, forKey: .mainDisplayOnly) ?? defaults.mainDisplayOnly
+        islandVerticalOffset = try container.decodeIfPresent(Double.self, forKey: .islandVerticalOffset) ?? defaults.islandVerticalOffset
+        showPlacementDebugOverlay = try container.decodeIfPresent(Bool.self, forKey: .showPlacementDebugOverlay) ?? defaults.showPlacementDebugOverlay
         customX = try container.decodeIfPresent(Double.self, forKey: .customX) ?? defaults.customX
         customY = try container.decodeIfPresent(Double.self, forKey: .customY) ?? defaults.customY
     }

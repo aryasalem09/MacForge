@@ -1,5 +1,39 @@
 # MacForge Development Report
 
+## v0.26.1 Notch Runtime Recovery
+
+Date: June 9, 2026
+
+### Summary
+
+This recovery sprint fixes the runtime paths that made v0.26 overstate the Live Island experience in manual testing. The fix focuses on Apple Music provider visibility, compact media presentation, notch placement, and Dock recovery.
+
+### Reproduced / Observed
+
+- Local AppleScript proof found Music running without a readable current track, returning `Can’t get name of current track. (-1728)`.
+- The Apple Music provider had no rich diagnostics, so permission, parsing, unavailable, and active states were flattened.
+- Live Island snapshots were selected by the coordinator, but panel presentation state could collapse after old MacForge activity expired and not re-promote active media.
+- Notch geometry anchored below the whole safe-area band, which could make the island sit too low below the physical notch.
+- Example presets can enable Dock autohide when Experimental Dock Tweaks are enabled, but Settings did not have an obvious Dock recovery path.
+
+### Root Cause
+
+The main bug was runtime wiring, not a missing feature. Provider polling and UI rendering existed, but the app did not keep the activity-center presentation state synchronized with the live coordinator after transient activity changed. Diagnostics also hid AppleScript errors and parse failures, making provider failure look like generic idle behavior.
+
+### What Changed
+
+- Added richer provider diagnostics, robust Apple Music no-track handling, and Live Island self-test clearing.
+- Added live snapshot presentation sync after provider changes and after activity auto-collapse.
+- Added Apple Music provider test, Open Music, and Open Automation Settings actions.
+- Anchored Notch Island frames to the inferred camera gap, added placement nudge, and added a debug overlay flag.
+- Added managed Dock restore commands and `MacForgeRecoveryService`.
+- Added Settings -> Safety recovery buttons for Dock restore, Notch disable, layout reset, live-state clear, and panic reset.
+- Added `EMERGENCY_RESET.md`, `RUNTIME_BUG_AUDIT.md`, and `MANUAL_QA_NOTCH_RUNTIME.md`.
+
+### Verification Notes
+
+Apple Music runtime display still requires manual Automation verification on the user machine with active playback. Build and test results for this branch are recorded in the final response after the final `xcodebuild` run.
+
 ## v0.26 NotchNook-Style Live Island Parity
 
 Date: June 9, 2026

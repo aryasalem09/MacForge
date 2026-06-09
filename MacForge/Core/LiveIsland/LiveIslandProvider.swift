@@ -5,6 +5,7 @@ import Foundation
 protocol LiveIslandProvider {
     var id: String { get }
     var displayName: String { get }
+    var latestDiagnostic: LiveIslandProviderDiagnostic? { get }
 
     func isEnabled(settings: LiveIslandSettings) -> Bool
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot?
@@ -12,6 +13,8 @@ protocol LiveIslandProvider {
 }
 
 extension LiveIslandProvider {
+    var latestDiagnostic: LiveIslandProviderDiagnostic? { nil }
+
     func perform(action: LiveIslandActionKind) async -> CommandResult {
         .failure(displayName, "\(action.title) is not available for this source.")
     }
@@ -20,8 +23,47 @@ extension LiveIslandProvider {
 struct LiveIslandProviderDiagnostic: Identifiable, Codable, Hashable {
     var id: String
     var providerName: String
+    var isEnabled: Bool
     var status: String
+    var appStatus: String
+    var lastPollAt: Date?
+    var lastSuccessAt: Date?
+    var lastError: String?
+    var rawResultSummary: String?
+    var permissionNeeded: Bool
+    var snapshotTitle: String?
+    var snapshotSubtitle: String?
     var updatedAt: Date
+
+    init(
+        id: String,
+        providerName: String,
+        isEnabled: Bool = true,
+        status: String,
+        appStatus: String = "Unknown",
+        lastPollAt: Date? = nil,
+        lastSuccessAt: Date? = nil,
+        lastError: String? = nil,
+        rawResultSummary: String? = nil,
+        permissionNeeded: Bool = false,
+        snapshotTitle: String? = nil,
+        snapshotSubtitle: String? = nil,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.providerName = providerName
+        self.isEnabled = isEnabled
+        self.status = status
+        self.appStatus = appStatus
+        self.lastPollAt = lastPollAt
+        self.lastSuccessAt = lastSuccessAt
+        self.lastError = lastError
+        self.rawResultSummary = rawResultSummary
+        self.permissionNeeded = permissionNeeded
+        self.snapshotTitle = snapshotTitle
+        self.snapshotSubtitle = snapshotSubtitle
+        self.updatedAt = updatedAt
+    }
 }
 
 struct AppleScriptExecutionError: Error, Equatable {
@@ -76,6 +118,8 @@ enum AutomationMediaParser {
         guard playbackState != .stopped else { return nil }
 
         let title = clean(parts[1])
+        guard !title.isEmpty else { return nil }
+
         let artist = clean(parts[2])
         let album = clean(parts[3])
         let elapsed = TimeInterval(clean(parts[4])) ?? 0
@@ -164,6 +208,7 @@ final class AppleMusicProvider: LiveIslandProvider {
 
     let id = AppleMusicProvider.providerID
     let displayName = "Apple Music"
+    private(set) var latestDiagnostic: LiveIslandProviderDiagnostic?
 
     private let runner: AppleScriptRunning
 
@@ -176,11 +221,19 @@ final class AppleMusicProvider: LiveIslandProvider {
     }
 
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
-        guard Self.isRunning else { return nil }
+        guard Self.isRunning else {
+            latestDiagnostic = diagnostic(
+                status: "Unavailable",
+                appStatus: "Music is not running",
+                lastPollAt: now,
+                updatedAt: now
+            )
+            return nil
+        }
 
         switch runner.run(source: Self.snapshotScript) {
         case .success(let output):
-            return AutomationMediaParser.parseMusicLikeOutput(
+            let snapshot = AutomationMediaParser.parseMusicLikeOutput(
                 output,
                 providerID: id,
                 providerName: displayName,
@@ -190,8 +243,29 @@ final class AppleMusicProvider: LiveIslandProvider {
                 symbolName: "music.note",
                 now: now
             )
+            latestDiagnostic = diagnostic(
+                status: snapshot == nil ? "Unavailable" : "Active",
+                appStatus: "Music is running",
+                lastPollAt: now,
+                lastSuccessAt: snapshot == nil ? nil : now,
+                lastError: snapshot == nil ? "Music did not report a playable current track." : nil,
+                rawResultSummary: Self.rawSummary(output, privacyMode: settings.privacyMode),
+                permissionNeeded: false,
+                snapshot: snapshot,
+                updatedAt: now
+            )
+            return snapshot
         case .failure(let error):
-            guard error.isPermissionError else { return nil }
+            let permissionNeeded = error.isPermissionError
+            latestDiagnostic = diagnostic(
+                status: permissionNeeded ? "Needs Automation Permission" : "AppleScript Error",
+                appStatus: "Music is running",
+                lastPollAt: now,
+                lastError: error.message,
+                permissionNeeded: permissionNeeded,
+                updatedAt: now
+            )
+            guard permissionNeeded else { return nil }
             return automationPermissionSnapshot(now: now, appName: "Music", bundleIdentifier: "com.apple.Music")
         }
     }
@@ -237,6 +311,46 @@ final class AppleMusicProvider: LiveIslandProvider {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.Music" }
     }
 
+    private func diagnostic(
+        status: String,
+        appStatus: String,
+        lastPollAt: Date?,
+        lastSuccessAt: Date? = nil,
+        lastError: String? = nil,
+        rawResultSummary: String? = nil,
+        permissionNeeded: Bool = false,
+        snapshot: LiveIslandSnapshot? = nil,
+        updatedAt: Date
+    ) -> LiveIslandProviderDiagnostic {
+        LiveIslandProviderDiagnostic(
+            id: id,
+            providerName: displayName,
+            isEnabled: true,
+            status: status,
+            appStatus: appStatus,
+            lastPollAt: lastPollAt,
+            lastSuccessAt: lastSuccessAt,
+            lastError: lastError,
+            rawResultSummary: rawResultSummary,
+            permissionNeeded: permissionNeeded,
+            snapshotTitle: snapshot?.title,
+            snapshotSubtitle: snapshot?.subtitle,
+            updatedAt: updatedAt
+        )
+    }
+
+    private static func rawSummary(_ output: String, privacyMode: Bool) -> String {
+        guard !privacyMode else {
+            return "Music returned media metadata."
+        }
+
+        let normalized = output.replacingOccurrences(of: AutomationMediaParser.delimiter, with: " | ")
+        if normalized.count <= 180 {
+            return normalized
+        }
+        return String(normalized.prefix(177)) + "..."
+    }
+
     private static let snapshotScript = """
     set delimiter to "\(AutomationMediaParser.delimiter)"
     tell application "Music"
@@ -251,9 +365,17 @@ final class AppleMusicProvider: LiveIslandProvider {
         try
             set currentTrack to current track
             set trackName to name of currentTrack
-            set artistName to artist of currentTrack
-            set albumName to album of currentTrack
-            set trackDuration to duration of currentTrack
+            try
+                set artistName to artist of currentTrack
+            end try
+            try
+                set albumName to album of currentTrack
+            end try
+            try
+                set trackDuration to duration of currentTrack
+            end try
+        on error
+            return "stopped" & delimiter & "" & delimiter & "" & delimiter & "" & delimiter & "0" & delimiter & "0"
         end try
         set trackPosition to player position
         return playerState & delimiter & trackName & delimiter & artistName & delimiter & albumName & delimiter & (trackPosition as text) & delimiter & (trackDuration as text)

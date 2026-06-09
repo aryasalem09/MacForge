@@ -25,6 +25,8 @@
 		315DAE6D386789541AC36614 /* DockSettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1357D56A3F7FACA0FB2FD7BD /* DockSettingsService.swift */; };
 		A690FF5FDB27D45BED28D3E7 /* ProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Dock/ProcessRunner.swift"; sourceTree = "<group>"; };
 		ACC11849B22120917BA08C65 /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A690FF5FDB27D45BED28D3E7 /* ProcessRunner.swift */; };
+		AB2601000000000000000101 /* MacForgeRecoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Safety/MacForgeRecoveryService.swift"; sourceTree = "<group>"; };
+		AB2601000000000000000102 /* MacForgeRecoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2601000000000000000101 /* MacForgeRecoveryService.swift */; };
 		377D7F800A981C7719564F28 /* BulkRenameEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Files/BulkRenameEngine.swift"; sourceTree = "<group>"; };
 		30A22E13F654129B3069E634 /* BulkRenameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377D7F800A981C7719564F28 /* BulkRenameEngine.swift */; };
 		14E4E6940CEE74178829DFF9 /* DuplicateFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Files/DuplicateFinder.swift"; sourceTree = "<group>"; };
@@ -222,6 +224,7 @@
 				CBAE201BCC76DB48B68E2BB5,
 				1357D56A3F7FACA0FB2FD7BD,
 				A690FF5FDB27D45BED28D3E7,
+				AB2601000000000000000101,
 				377D7F800A981C7719564F28,
 				14E4E6940CEE74178829DFF9,
 				E6A2A813A22AD5EB45D09059,
@@ -352,6 +355,7 @@
 				3E2D89F4D3DD4D9B02B8BE15,
 				315DAE6D386789541AC36614,
 				ACC11849B22120917BA08C65,
+				AB2601000000000000000102,
 				30A22E13F654129B3069E634,
 				41B017CAB9895774B446D632,
 				C920D000F1E699595B5A43BE,

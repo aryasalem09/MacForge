@@ -77,7 +77,29 @@ final class NotchGeometryServiceTests: XCTestCase {
 
         let geometry = NotchGeometryService().anchorGeometry(metrics: metrics)
 
-        XCTAssertLessThanOrEqual(geometry.expandedFrame.rect.maxY, 982 - 74 - 6 + 0.5)
+        XCTAssertLessThanOrEqual(geometry.expandedFrame.rect.maxY, geometry.cameraGapFrame.rect.minY + 0.5)
+    }
+
+    func testDefaultIslandWidthsStayBelowToolbarThreshold() {
+        let geometry = NotchGeometryService().anchorGeometry(metrics: notchedMetricsWithAuxiliaryAreas())
+
+        XCTAssertLessThanOrEqual(geometry.collapsedFrame.rect.width, 220)
+        XCTAssertLessThanOrEqual(geometry.compactFrame.rect.width, 340)
+        XCTAssertGreaterThanOrEqual(geometry.expandedFrame.rect.width, 520)
+    }
+
+    func testVerticalOffsetIsAppliedAndClampedBelowCameraGap() {
+        var config = NotchShelfConfig.default
+        config.islandVerticalOffset = -18
+
+        let lowered = NotchGeometryService().anchorGeometry(metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
+
+        XCTAssertEqual(lowered.collapsedFrame.rect.maxY, lowered.cameraGapFrame.rect.minY - 18, accuracy: 0.5)
+
+        config.islandVerticalOffset = 24
+        let clamped = NotchGeometryService().anchorGeometry(metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
+
+        XCTAssertEqual(clamped.collapsedFrame.rect.maxY, clamped.cameraGapFrame.rect.minY, accuracy: 0.5)
     }
 
     private func notchedMetricsWithAuxiliaryAreas() -> NotchScreenMetrics {

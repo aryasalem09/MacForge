@@ -21,7 +21,7 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         spotifyEnabled: true,
         quickTimeEnabled: true,
         browserMediaHintsEnabled: false,
-        downloadsWatcherEnabled: true,
+        downloadsWatcherEnabled: false,
         timersEnabled: true,
         keepMediaVisibleWhilePlaying: true,
         showArtwork: true,
@@ -84,5 +84,24 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = Self.default
+
+        enableLiveIslandSources = try container.decodeIfPresent(Bool.self, forKey: .enableLiveIslandSources) ?? defaults.enableLiveIslandSources
+        appleMusicEnabled = try container.decodeIfPresent(Bool.self, forKey: .appleMusicEnabled) ?? defaults.appleMusicEnabled
+        spotifyEnabled = try container.decodeIfPresent(Bool.self, forKey: .spotifyEnabled) ?? defaults.spotifyEnabled
+        quickTimeEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTimeEnabled) ?? defaults.quickTimeEnabled
+        browserMediaHintsEnabled = try container.decodeIfPresent(Bool.self, forKey: .browserMediaHintsEnabled) ?? defaults.browserMediaHintsEnabled
+        downloadsWatcherEnabled = try container.decodeIfPresent(Bool.self, forKey: .downloadsWatcherEnabled) ?? defaults.downloadsWatcherEnabled
+        timersEnabled = try container.decodeIfPresent(Bool.self, forKey: .timersEnabled) ?? defaults.timersEnabled
+        keepMediaVisibleWhilePlaying = try container.decodeIfPresent(Bool.self, forKey: .keepMediaVisibleWhilePlaying) ?? defaults.keepMediaVisibleWhilePlaying
+        showArtwork = try container.decodeIfPresent(Bool.self, forKey: .showArtwork) ?? defaults.showArtwork
+        privacyMode = try container.decodeIfPresent(Bool.self, forKey: .privacyMode) ?? defaults.privacyMode
+        providerDiagnosticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .providerDiagnosticsEnabled) ?? defaults.providerDiagnosticsEnabled
+        downloadsFolderBookmark = try container.decodeIfPresent(Data.self, forKey: .downloadsFolderBookmark) ?? defaults.downloadsFolderBookmark
+        downloadsFolderName = try container.decodeIfPresent(String.self, forKey: .downloadsFolderName) ?? defaults.downloadsFolderName
     }
 }

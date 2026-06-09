@@ -94,6 +94,7 @@ final class AppEnvironment: ObservableObject {
     let folderAccessStore = FolderAccessStore()
     let windowService = AccessibilityWindowService()
     let dockSettingsService = DockSettingsService()
+    let recoveryService = MacForgeRecoveryService()
     let wallpaperService = WallpaperService()
     let notchShelfWindowController = NotchShelfWindowController()
     let fileOrganizerService = FileOrganizerService()
@@ -184,6 +185,8 @@ final class AppEnvironment: ObservableObject {
 
     func resetNotchIslandLayout() {
         let defaults = NotchShelfConfig.default
+        notchConfig.preferredStyle = .island
+        notchConfig.presentationState = .collapsed
         notchConfig.collapsedWidth = defaults.collapsedWidth
         notchConfig.collapsedHeight = defaults.collapsedHeight
         notchConfig.compactWidth = defaults.compactWidth
@@ -191,8 +194,55 @@ final class AppEnvironment: ObservableObject {
         notchConfig.expandedWidth = defaults.expandedWidth
         notchConfig.expandedHeight = defaults.expandedHeight
         notchConfig.cornerRadius = defaults.cornerRadius
+        notchConfig.islandVerticalOffset = defaults.islandVerticalOffset
+        notchConfig.showPlacementDebugOverlay = defaults.showPlacementDebugOverlay
         notchIslandActivityCenter.collapse()
         append(.success("Notch Island", "Reset island layout values."))
+    }
+
+    func disableNotchIslandFromSafety() {
+        notchConfig.enabled = false
+        notchConfig.preferredStyle = .island
+        notchIslandActivityCenter.hide()
+        append(.success("Notch Island", "Disabled Notch Island."))
+    }
+
+    func clearLiveIslandState() {
+        liveIslandCoordinator.clearTransientState()
+        notchIslandActivityCenter.clearActivity()
+        append(.success("Live Island", "Cleared transient activity and provider test state."))
+    }
+
+    func restoreDockManagedSettings() async {
+        let wasEnabled = experimentalDockTweaksEnabled
+        if !experimentalDockTweaksEnabled {
+            experimentalDockTweaksEnabled = true
+        }
+
+        let results = await recoveryService.restoreDockManagedKeys()
+        dockSettings = .default
+
+        if !wasEnabled {
+            experimentalDockTweaksEnabled = false
+        }
+
+        results.forEach(append)
+    }
+
+    func panicResetMacForgeRuntime() async {
+        notchConfig.enabled = false
+        notchConfig.preferredStyle = .island
+        resetNotchConfigToSafeDefaults()
+        liveIslandCoordinator.clearTransientState()
+        notchIslandActivityCenter.hide()
+        liveIslandSettings = .default
+        dockSettings = .default
+
+        let results = await recoveryService.restoreDockManagedKeys()
+        experimentalDockTweaksEnabled = false
+
+        append(.success("Panic Reset", "Disabled Notch Island, cleared Live Island state, reset layout, and disabled Experimental Dock Tweaks."))
+        results.forEach(append)
     }
 
     func addNotchFileTrayItem(_ url: URL) {
@@ -454,6 +504,7 @@ final class AppEnvironment: ObservableObject {
             .sink { [weak self] _ in
                 self?.processPendingCommandRequests()
                 self?.notchIslandActivityCenter.autoCollapseIfNeeded()
+                self?.syncNotchIslandPresentation()
             }
             .store(in: &cancellables)
 
@@ -563,14 +614,79 @@ final class AppEnvironment: ObservableObject {
 
     func showLiveIslandTestSnapshot(kind: LiveIslandSnapshotKind) {
         liveIslandCoordinator.showTestSnapshot(kind: kind)
+        if notchConfig.enabled, notchConfig.preferredStyle == .island, notchIslandActivityCenter.presentationState != .expanded {
+            notchIslandActivityCenter.presentationState = .compact
+        }
+    }
+
+    func runLiveIslandSelfTest() {
+        liveIslandCoordinator.showTestSnapshot(kind: .music)
+        if notchConfig.enabled, notchConfig.preferredStyle == .island, notchIslandActivityCenter.presentationState != .expanded {
+            notchIslandActivityCenter.presentationState = .compact
+        }
+        record(.success("Live Island Self-Test", "Injected a temporary media snapshot to verify the coordinator-to-island UI path."))
+    }
+
+    func testAppleMusicProvider() async {
+        guard let provider = liveIslandCoordinator.providers.first(where: { $0.id == AppleMusicProvider.providerID }) else {
+            record(.failure("Apple Music Provider", "The Apple Music provider is not configured."))
+            return
+        }
+
+        let snapshot = await provider.snapshot(settings: liveIslandSettings, now: Date())
+        await liveIslandCoordinator.refresh()
+
+        if let snapshot {
+            if notchConfig.enabled, notchConfig.preferredStyle == .island, notchIslandActivityCenter.presentationState != .expanded {
+                notchIslandActivityCenter.presentationState = .compact
+            }
+            record(.success("Apple Music Provider", "Read \(snapshot.title).", details: [snapshot.subtitle].filter { !$0.isEmpty }))
+            return
+        }
+
+        if let diagnostic = provider.latestDiagnostic {
+            let details = [
+                "Status: \(diagnostic.status)",
+                "App: \(diagnostic.appStatus)",
+                diagnostic.lastError.map { "Error: \($0)" },
+                diagnostic.rawResultSummary.map { "Raw: \($0)" }
+            ].compactMap { $0 }
+            record(.failure("Apple Music Provider", diagnostic.permissionNeeded ? "Automation permission is needed." : "No playable Music track was available.", details: details))
+        } else {
+            record(.failure("Apple Music Provider", "No diagnostic was returned."))
+        }
+    }
+
+    func openMusicApp() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Music") else {
+            append(.failure("Apple Music", "Music.app was not found."))
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+        append(.success("Apple Music", "Opened Music."))
+    }
+
+    func openAutomationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") else {
+            append(.failure("Automation Settings", "Could not build the System Settings URL."))
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+        append(.success("Automation Settings", "Opened Privacy & Security Automation settings."))
     }
 
     func append(_ result: CommandResult) {
-        commandResults.insert(result, at: 0)
-        commandResults = Array(commandResults.prefix(60))
+        record(result)
         if notchConfig.enabled, notchConfig.preferredStyle == .island {
             notchIslandActivityCenter.showCommandResult(result, autoCollapseDelay: notchConfig.autoCollapseDelay)
         }
+    }
+
+    private func record(_ result: CommandResult) {
+        commandResults.insert(result, at: 0)
+        commandResults = Array(commandResults.prefix(60))
     }
 
     private func runPresetAction(_ action: PresetAction) async -> CommandResult {
@@ -675,23 +791,7 @@ final class AppEnvironment: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] snapshot in
                 Task { @MainActor in
-                    guard let self,
-                          self.notchConfig.enabled,
-                          self.notchConfig.preferredStyle == .island else {
-                        return
-                    }
-
-                    if snapshot.kind != .idle,
-                       snapshot.priority >= .backgroundMedia,
-                       self.notchIslandActivityCenter.presentationState == .collapsed {
-                        self.notchIslandActivityCenter.presentationState = .compact
-                    } else if snapshot.kind == .idle,
-                              self.notchIslandActivityCenter.presentationState == .compact,
-                              self.notchIslandActivityCenter.currentActivity == nil {
-                        self.notchIslandActivityCenter.collapse()
-                    } else {
-                        self.updateNotchShelf()
-                    }
+                    self?.syncNotchIslandPresentation(with: snapshot)
                 }
             }
             .store(in: &cancellables)
@@ -712,6 +812,49 @@ final class AppEnvironment: ObservableObject {
         } catch {
             commandResults.insert(.failure("Preferences", "Could not save preferences.", details: [error.localizedDescription]), at: 0)
         }
+    }
+
+    private func syncNotchIslandPresentation(with snapshot: LiveIslandSnapshot? = nil) {
+        guard notchConfig.enabled,
+              notchConfig.preferredStyle == .island else {
+            return
+        }
+
+        let snapshot = snapshot ?? liveIslandCoordinator.currentSnapshot
+        let shouldUseCompact = snapshot.kind != .idle && snapshot.priority >= .backgroundMedia
+
+        switch notchIslandActivityCenter.presentationState {
+        case .hidden:
+            return
+        case .expanded:
+            updateNotchShelf()
+        case .collapsed where shouldUseCompact:
+            notchIslandActivityCenter.presentationState = .compact
+        case .compact where !shouldUseCompact && notchIslandActivityCenter.currentActivity == nil:
+            notchIslandActivityCenter.collapse()
+        default:
+            updateNotchShelf()
+        }
+    }
+
+    private func resetNotchConfigToSafeDefaults() {
+        let defaults = NotchShelfConfig.default
+        notchConfig.preferredStyle = .island
+        notchConfig.presentationState = .collapsed
+        notchConfig.width = defaults.width
+        notchConfig.height = defaults.height
+        notchConfig.collapsedWidth = defaults.collapsedWidth
+        notchConfig.collapsedHeight = defaults.collapsedHeight
+        notchConfig.compactWidth = defaults.compactWidth
+        notchConfig.compactHeight = defaults.compactHeight
+        notchConfig.expandedWidth = defaults.expandedWidth
+        notchConfig.expandedHeight = defaults.expandedHeight
+        notchConfig.cornerRadius = defaults.cornerRadius
+        notchConfig.opacity = defaults.opacity
+        notchConfig.materialStyle = defaults.materialStyle
+        notchConfig.islandVerticalOffset = defaults.islandVerticalOffset
+        notchConfig.showPlacementDebugOverlay = defaults.showPlacementDebugOverlay
+        notchConfig.ignoreMouseEventsWhenInactive = false
     }
 
     private func currentConfigurationData() throws -> Data {

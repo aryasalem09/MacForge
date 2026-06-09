@@ -106,17 +106,17 @@ struct NotchGeometryService {
         let hasLikelyNotch = metrics.hasLikelyNotch || hasAuxiliaryGap || topInset > 0
         let cameraGapFrame = cameraGap(metrics: metrics)
         let anchorCenterX = cameraGapFrame.midX
-        let safeTopY = max(
-            screenFrame.minY + margin,
-            screenFrame.maxY - (hasLikelyNotch ? max(topInset, defaultCameraGapHeight) : 0) - 6
+        let baseTopY = hasLikelyNotch ? cameraGapFrame.minY : screenFrame.maxY - margin
+        let adjustedTopY = baseTopY + CGFloat(config.islandVerticalOffset.clamped(to: -24...24))
+        let safeTopY = min(
+            max(screenFrame.minY + margin, adjustedTopY),
+            hasLikelyNotch ? cameraGapFrame.minY : screenFrame.maxY - margin
         )
 
-        let collapsedWidth = clampedWidth(
-            max(CGFloat(config.collapsedWidth), min(max(cameraGapFrame.width + 24, 180), 240)),
-            screenFrame: screenFrame
-        )
+        let configuredCollapsedWidth = min(max(CGFloat(config.collapsedWidth), 160), 220)
+        let collapsedWidth = clampedWidth(max(configuredCollapsedWidth, min(cameraGapFrame.width, 220)), screenFrame: screenFrame)
         let collapsedHeight = CGFloat(config.collapsedHeight)
-        let compactWidth = clampedWidth(max(CGFloat(config.compactWidth), collapsedWidth + 72), screenFrame: screenFrame)
+        let compactWidth = clampedWidth(min(max(CGFloat(config.compactWidth), collapsedWidth + 72), 340), screenFrame: screenFrame)
         let compactHeight = CGFloat(config.compactHeight)
         let expandedWidth = clampedWidth(CGFloat(config.expandedWidth), screenFrame: screenFrame)
         let expandedHeight = min(CGFloat(config.expandedHeight), max(180, safeTopY - screenFrame.minY - margin))
@@ -226,5 +226,11 @@ struct NotchGeometryService {
         }
 
         return nil
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

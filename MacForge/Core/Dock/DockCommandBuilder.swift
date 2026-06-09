@@ -30,6 +30,16 @@ struct DockCommandBuilder {
     static let defaultsPath = "/usr/bin/defaults"
     static let killallPath = "/usr/bin/killall"
     static let dockDomain = "com.apple.dock"
+    static let managedDockKeys: Set<String> = [
+        "autohide",
+        "autohide-delay",
+        "autohide-time-modifier",
+        "tilesize",
+        "magnification",
+        "largesize",
+        "orientation",
+        "show-recents"
+    ]
 
     func buildApplyCommands(for settings: DockSettings, restartDock: Bool = true) throws -> [SafeCommand] {
         guard (16...128).contains(settings.tileSize), (16...256).contains(settings.magnificationSize) else {
@@ -63,13 +73,45 @@ struct DockCommandBuilder {
         return commands
     }
 
+    func buildRestoreManagedKeysCommands() throws -> [SafeCommand] {
+        let keysToDelete = [
+            "autohide-delay",
+            "autohide-time-modifier",
+            "tilesize",
+            "magnification",
+            "largesize",
+            "orientation",
+            "show-recents"
+        ]
+        var commands = [
+            defaultsWrite("autohide", type: "-bool", value: "false", summary: "Restore Dock auto-hide off")
+        ]
+        commands.append(contentsOf: keysToDelete.map {
+            SafeCommand(executablePath: Self.defaultsPath, arguments: ["delete", Self.dockDomain, $0], summary: "Remove MacForge-managed Dock \($0)")
+        })
+        commands.append(restartDockCommand())
+        try commands.forEach(validate)
+        return commands
+    }
+
     func validate(_ command: SafeCommand) throws {
         switch command.executablePath {
         case Self.defaultsPath:
             guard command.arguments.count >= 3,
                   ["write", "delete"].contains(command.arguments[0]),
-                  command.arguments[1] == Self.dockDomain else {
+                  command.arguments[1] == Self.dockDomain,
+                  Self.managedDockKeys.contains(command.arguments[2]) else {
                 throw DockCommandBuilderError.unsafeCommand
+            }
+            if command.arguments[0] == "write" {
+                guard command.arguments.count == 5,
+                      ["-bool", "-float", "-string"].contains(command.arguments[3]) else {
+                    throw DockCommandBuilderError.unsafeCommand
+                }
+            } else if command.arguments[0] == "delete" {
+                guard command.arguments.count == 3 else {
+                    throw DockCommandBuilderError.unsafeCommand
+                }
             }
         case Self.killallPath:
             guard command.arguments == ["Dock"] else {

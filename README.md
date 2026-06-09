@@ -52,6 +52,38 @@ MacForge also does not permanently delete files. Destructive file workflows must
 - Automation: optional, requested by macOS only when Live Island sources control or read Apple Music, Spotify, QuickTime, or enabled browser hints.
 - Downloads watcher: optional, limited to the user-selected folder saved as a security-scoped bookmark.
 
+## Troubleshooting
+
+### Dock Disappeared Or Stayed Hidden
+
+Open Settings -> Safety and run Restore Dock Managed Settings or Panic Reset Everything MacForge Changed. If the app cannot be opened, run the backed-up emergency commands in `EMERGENCY_RESET.md`.
+
+MacForge only restores keys it manages: `autohide`, `autohide-delay`, `autohide-time-modifier`, `tilesize`, `magnification`, `largesize`, `orientation`, and `show-recents`. It does not delete the entire Dock preferences domain.
+
+### Apple Music Is Playing But Not Showing
+
+1. Confirm Notch Shelf is enabled and Mode is Notch Island.
+2. Confirm Live Island Sources and Apple Music are enabled.
+3. In Notch settings, enable Provider diagnostics and click Test Music Provider.
+4. If permission is needed, allow MacForge under System Settings -> Privacy & Security -> Automation -> MacForge -> Music.
+5. If Music is running but has no readable current track, MacForge reports the provider unavailable instead of showing fake metadata.
+
+To reset the prompt:
+
+```sh
+tccutil reset AppleEvents com.aryasalem.MacForge
+```
+
+Then quit and relaunch MacForge from Xcode while Music is playing.
+
+### Notch Island Is Too Low
+
+Use Notch settings -> Placement nudge and Reset Notch Layout. The island uses public screen safe-area and auxiliary top-area geometry; it will not draw interactive controls into pixels hidden by the physical camera cutout.
+
+### Old Build Still Running
+
+Quit MacForge completely before launching from Xcode. A stale app bundle can keep older Classic Shelf or provider behavior alive even after the branch builds.
+
 ## Build Instructions
 
 Open `MacForge.xcodeproj` in Xcode, select the `MacForge` scheme, choose `My Mac`, and press Run.

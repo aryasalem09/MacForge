@@ -17,6 +17,17 @@ struct NotchIslandView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if environment.notchConfig.showPlacementDebugOverlay {
+                Text(debugOverlayText)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.white.opacity(0.74))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.72), in: Capsule())
+                    .padding(.bottom, 4)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             guard environment.notchConfig.expandOnClick else { return }
@@ -74,5 +85,11 @@ struct NotchIslandView: View {
                 environment.append(result)
             }
         }
+    }
+
+    private var debugOverlayText: String {
+        let config = environment.notchConfig
+        let snapshot = liveIslandCoordinator.currentSnapshot
+        return "state \(activityCenter.presentationState.rawValue) | \(snapshot.kind.rawValue) | c \(Int(config.collapsedWidth))x\(Int(config.collapsedHeight)) | m \(Int(config.compactWidth))x\(Int(config.compactHeight)) | y \(Int(config.islandVerticalOffset))"
     }
 }

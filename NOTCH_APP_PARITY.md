@@ -4,6 +4,8 @@ Date: June 9, 2026
 
 MacForge now targets practical NotchNook-style user-visible parity while staying inside public macOS APIs, explicit user consent, and honest limitations. The comparison below is based on inspected MacForge code and public competitor descriptions from The Verge, MacStories, MediaMate, App Store listings, and Boring Notch.
 
+v0.26.1 adds runtime recovery fixes and provider diagnostics. Apple Music is implemented through Automation and parser tests, but should be marked manually verified only after this branch is run with active Music playback and MacForge Automation consent.
+
 ## Sources Inspected
 
 - MacForge code: `Core/Notch`, `UI/Notch`, `App/AppEnvironment.swift`, `Core/LiveIsland`, `Core/Files`, `Core/Dock`, `Core/Desktop`, and tests.
@@ -19,7 +21,7 @@ MacForge now targets practical NotchNook-style user-visible parity while staying
 | --- | --- | --- | --- |
 | 1. Collapsed notch pill | Already implemented | `NotchIslandCollapsedView` is a tiny black pill, and `NotchGeometryService` anchors it below public safe-area/notch geometry. | It cannot draw into hidden camera pixels. |
 | 2. Hover/click/swipe expansion | Implement now | Hover/click existed in `NotchIslandView`; this sprint adds vertical swipe expand/collapse and horizontal media previous/next gestures when supported. | Trackpad gesture recognition is app-panel local, not an OS gesture hook. |
-| 3. Music now playing | Implement now | `AppleMusicProvider` and `SpotifyProvider` poll public Automation/AppleScript for title, artist, album, playback state, elapsed, and duration when the app is running. | Requires macOS Automation consent. No private MediaRemote usage. |
+| 3. Music now playing | Implemented, needs manual Automation verification | `AppleMusicProvider` and `SpotifyProvider` poll public Automation/AppleScript for title, artist, album, playback state, elapsed, and duration when the app is running. v0.26.1 adds provider diagnostics, Apple Music test action, and permission surfacing. | Requires macOS Automation consent. No private MediaRemote usage. |
 | 4. Media controls | Implement now | Apple Music and Spotify support play/pause/next/previous/open app. QuickTime supports best-effort play/pause/open app. | Browser controls need the optional bridge; generic media apps expose open-only. |
 | 5. Video playback display | Implement best-effort | `QuickTimeProvider` reads front-document title, playing state, position, and duration when public Automation exposes it. `GenericMediaAppProvider` detects known video apps. | Universal per-app video state is blocked without private APIs, injection, or screen recording. |
 | 6. Browser media display | Implement best-effort / Requires companion extension | `BrowserMediaProvider` optionally reads active tab title/URL for Safari, Chrome, Brave, and Edge and labels it honestly as possible browser media. `MacForgeBrowserBridge` scaffolds future Media Session API metadata. | Exact browser playback state and artwork require the user-installed extension bridge. |

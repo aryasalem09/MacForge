@@ -167,6 +167,65 @@ final class LiveIslandTests: XCTestCase {
         XCTAssertEqual(snapshot?.progress, 0.25)
     }
 
+    func testAppleMusicParserWithPausedTrackAndMissingAlbumArtist() {
+        let now = Date()
+        let output = [
+            "paused",
+            "Quiet Track",
+            "",
+            "",
+            "12",
+            "60"
+        ].joined(separator: AutomationMediaParser.delimiter)
+
+        let snapshot = AutomationMediaParser.parseMusicLikeOutput(
+            output,
+            providerID: AppleMusicProvider.providerID,
+            providerName: "Apple Music",
+            kind: .music,
+            appName: "Music",
+            bundleIdentifier: "com.apple.Music",
+            symbolName: "music.note",
+            now: now
+        )
+
+        XCTAssertEqual(snapshot?.title, "Quiet Track")
+        XCTAssertEqual(snapshot?.subtitle, "")
+        XCTAssertEqual(snapshot?.playbackState, .paused)
+        XCTAssertNotNil(snapshot?.expiresAt)
+    }
+
+    func testAppleMusicParserIgnoresMissingCurrentTrack() {
+        let now = Date()
+        let output = [
+            "playing",
+            "",
+            "",
+            "",
+            "0",
+            "0"
+        ].joined(separator: AutomationMediaParser.delimiter)
+
+        let snapshot = AutomationMediaParser.parseMusicLikeOutput(
+            output,
+            providerID: AppleMusicProvider.providerID,
+            providerName: "Apple Music",
+            kind: .music,
+            appName: "Music",
+            bundleIdentifier: "com.apple.Music",
+            symbolName: "music.note",
+            now: now
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
+    func testAppleScriptPermissionErrorDetected() {
+        let error = AppleScriptExecutionError(message: "Not authorized to send Apple events to Music.", code: -1743)
+
+        XCTAssertTrue(error.isPermissionError)
+    }
+
     func testSpotifyParserWithMockScriptOutput() {
         let now = Date()
         let output = [
@@ -235,6 +294,37 @@ final class LiveIslandTests: XCTestCase {
         let decoded = try JSONDecoder.macForge.decode(LiveIslandSettings.self, from: data)
 
         XCTAssertEqual(decoded, settings)
+    }
+
+    func testLiveIslandSettingsDefaultsEnableMusicButNotDownloads() {
+        let settings = LiveIslandSettings.default
+
+        XCTAssertTrue(settings.enableLiveIslandSources)
+        XCTAssertTrue(settings.appleMusicEnabled)
+        XCTAssertTrue(settings.keepMediaVisibleWhilePlaying)
+        XCTAssertFalse(settings.downloadsWatcherEnabled)
+    }
+
+    func testLiveIslandSettingsDecodeUsesMediaEnabledDefaultsForMissingFields() throws {
+        let data = Data(#"{"privacyMode":true}"#.utf8)
+
+        let decoded = try JSONDecoder.macForge.decode(LiveIslandSettings.self, from: data)
+
+        XCTAssertTrue(decoded.enableLiveIslandSources)
+        XCTAssertTrue(decoded.appleMusicEnabled)
+        XCTAssertTrue(decoded.keepMediaVisibleWhilePlaying)
+        XCTAssertTrue(decoded.privacyMode)
+    }
+
+    func testFakeSelfTestSnapshotBecomesPrimary() async {
+        let now = Date()
+        let coordinator = LiveIslandCoordinator(nowProvider: { now })
+
+        coordinator.showTestSnapshot(kind: .music)
+        await coordinator.refresh()
+
+        XCTAssertEqual(coordinator.currentSnapshot.providerID, "test")
+        XCTAssertEqual(coordinator.currentSnapshot.kind, .music)
     }
 
     func testClassicShelfStillAvailable() throws {
