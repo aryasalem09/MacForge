@@ -16,7 +16,8 @@ This project was created and locally verified on:
 ## What It Can Customize
 
 - Menu bar quick actions for common MacForge workflows.
-- A notch-aware floating Notch Shelf using `NSScreen` safe-area geometry and `NSPanel`.
+- A Notch Island mode with camera-anchored collapsed, compact activity, and expanded panel states using public `NSScreen` geometry and `NSPanel`.
+- A Classic Shelf mode for the older wide top-center HUD.
 - Accessibility-based window layouts for the focused window.
 - Experimental local Dock settings through whitelisted `/usr/bin/defaults` and `/usr/bin/killall Dock` commands.
 - Local wallpaper presets through `NSWorkspace`.
@@ -31,6 +32,8 @@ This project was created and locally verified on:
 - It cannot modify protected system behavior Apple does not expose through public APIs.
 - It cannot inject into Dock, Finder, SystemUIServer, or other apps.
 - It does not use private APIs, root escalation, kernel extensions, or SIP bypasses.
+- It cannot read a private physical camera cutout rectangle or become a true OS-level iPhone island.
+- It cannot draw into pixels hidden by the MacBook camera cutout; interactive controls are positioned below the safe camera/menu-bar area.
 - Mac App Store distribution would need Experimental Dock Tweaks disabled or carefully redesigned.
 
 MacForge also does not permanently delete files. Destructive file workflows must move files to Trash only, with confirmation and a `CommandResult`.
@@ -79,6 +82,7 @@ GitHub Actions runs build and test on `macos-26` so CI has an Xcode 26 toolchain
 
 - Dock commands are structured `SafeCommand` values, never arbitrary shell strings.
 - Dock execution is blocked unless Experimental Dock Tweaks is enabled.
+- Notch Island geometry uses public `NSScreen.safeAreaInsets`, `auxiliaryTopLeftArea`, and `auxiliaryTopRightArea` where available, with safe top-center fallbacks.
 - File rules default to dry-run preview and require confirmation before applying changes.
 - Bulk Rename shows old-to-new previews, blocks collisions, and requires confirmation before applying.
 - Duplicate Finder groups by size first, hashes candidate duplicates, and never deletes files.
@@ -94,6 +98,8 @@ GitHub Actions runs build and test on `macos-26` so CI has an Xcode 26 toolchain
 - File-rule rollback is intentionally unavailable in v0.2 because automatic reversal of moves, copies, tags, or Trash operations can be unsafe.
 - Shortcuts support is limited to app-observed request wiring for selected actions; richer AppEntity selection is future work.
 - Finder tag writing depends on SDK and OS availability and can be refused by protected or cloud-backed locations.
+- Notch Island placement is main-display MVP. External displays fall back to a top-center island when notch geometry is unavailable.
+- The app creates an original MacForge Notch Island experience inspired by compact activity surfaces; it does not copy Apple assets or claim to be an OS-level Dynamic Island.
 
 ## Distribution Notes
 
@@ -103,7 +109,7 @@ Developer ID or local builds are recommended for the full feature set. A Mac App
 
 - AppEntity-backed Shortcuts for selecting real presets and pinned folders.
 - More complete rollback for safe, reversible preset actions.
-- Multi-display Notch Shelf placement controls.
+- Multi-display Notch Island placement controls.
 - Richer file-rule editor with destination validation and better action descriptions.
 - Optional signed release configuration.
 - Localization and accessibility polish.
@@ -112,6 +118,10 @@ Developer ID or local builds are recommended for the full feature set. A Mac App
 
 - Launch the app and verify the main window, menu bar extra, and settings open.
 - Toggle the Notch Shelf and confirm buttons are clickable by default.
+- In Notch Island mode, confirm the idle state is a small black pill rather than a wide toolbar.
+- Click or hover the island and confirm it expands downward from the camera area.
+- Run a window action, preset, wallpaper apply, file rule, duplicate scan, or folder open and confirm a compact activity appears then auto-collapses.
+- On an external display, confirm the island uses a top-center fallback and still supports collapsed/expanded states.
 - Enable click-through mode and confirm the warning matches the behavior.
 - Grant Accessibility permission, refresh windows, and tile a focused window.
 - Leave Accessibility disabled and confirm window actions fail clearly.

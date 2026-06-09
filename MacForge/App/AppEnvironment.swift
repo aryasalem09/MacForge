@@ -93,6 +93,7 @@ final class AppEnvironment: ObservableObject {
     let duplicateFinder = DuplicateFinder()
     let presetRunner = PresetRunner()
     let rollbackManager = RollbackManager()
+    let notchIslandActivityCenter = NotchIslandActivityCenter()
 
     private let configurationURL: URL
     private var isLoading = true
@@ -122,10 +123,12 @@ final class AppEnvironment: ObservableObject {
         }
 
         isLoading = false
+        notchIslandActivityCenter.presentationState = notchConfig.enabled ? notchConfig.presentationState : .hidden
         refreshPermissions()
         refreshWallpaperStates()
-        updateShelfAndPersist()
+        startNotchIslandObservation()
         startCommandBusObservation()
+        updateShelfAndPersist()
     }
 
     func refreshPermissions() {
@@ -147,10 +150,36 @@ final class AppEnvironment: ObservableObject {
 
     func toggleNotchShelf() {
         notchConfig.enabled.toggle()
+        if notchConfig.enabled {
+            notchIslandActivityCenter.collapse()
+        } else {
+            notchIslandActivityCenter.hide()
+        }
     }
 
     func updateNotchShelf() {
         notchShelfWindowController.update(config: notchConfig, environment: self)
+    }
+
+    func expandNotchIsland() {
+        notchIslandActivityCenter.expand()
+    }
+
+    func collapseNotchIsland() {
+        notchIslandActivityCenter.collapse()
+    }
+
+    func resetNotchIslandLayout() {
+        let defaults = NotchShelfConfig.default
+        notchConfig.collapsedWidth = defaults.collapsedWidth
+        notchConfig.collapsedHeight = defaults.collapsedHeight
+        notchConfig.compactWidth = defaults.compactWidth
+        notchConfig.compactHeight = defaults.compactHeight
+        notchConfig.expandedWidth = defaults.expandedWidth
+        notchConfig.expandedHeight = defaults.expandedHeight
+        notchConfig.cornerRadius = defaults.cornerRadius
+        notchIslandActivityCenter.collapse()
+        append(.success("Notch Island", "Reset island layout values."))
     }
 
     func addPinnedFolder() {
@@ -199,11 +228,25 @@ final class AppEnvironment: ObservableObject {
     }
 
     func tileFocusedWindow(_ layout: WindowLayoutType) async {
+        notchIslandActivityCenter.showActivity(
+            kind: .windowAction,
+            title: "Window Action",
+            message: layout.label,
+            symbolName: layout.symbolName,
+            duration: notchConfig.autoCollapseDelay
+        )
         append(await windowService.tileFocusedWindow(layout, customGrid: nil))
         await refreshWindows()
     }
 
     func moveFocusedWindowToNextDisplay() async {
+        notchIslandActivityCenter.showActivity(
+            kind: .windowAction,
+            title: "Window Action",
+            message: "Moving to next display",
+            symbolName: "rectangle.on.rectangle",
+            duration: notchConfig.autoCollapseDelay
+        )
         append(await windowService.moveFocusedWindowToNextDisplay())
         await refreshWindows()
     }
@@ -254,6 +297,13 @@ final class AppEnvironment: ObservableObject {
     }
 
     func runPreset(_ preset: AppPreset) async {
+        notchIslandActivityCenter.showActivity(
+            kind: .preset,
+            title: "Running Preset",
+            message: preset.name,
+            symbolName: preset.iconName,
+            duration: nil
+        )
         let context = PresetExecutionContext(
             runAction: { [weak self] action in
                 guard let self else { return .failure("Preset", "MacForge environment was unavailable.") }
@@ -325,6 +375,7 @@ final class AppEnvironment: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 self?.processPendingCommandRequests()
+                self?.notchIslandActivityCenter.autoCollapseIfNeeded()
             }
             .store(in: &cancellables)
 
@@ -414,6 +465,9 @@ final class AppEnvironment: ObservableObject {
     func append(_ result: CommandResult) {
         commandResults.insert(result, at: 0)
         commandResults = Array(commandResults.prefix(60))
+        if notchConfig.enabled, notchConfig.preferredStyle == .island {
+            notchIslandActivityCenter.showCommandResult(result, autoCollapseDelay: notchConfig.autoCollapseDelay)
+        }
     }
 
     private func runPresetAction(_ action: PresetAction) async -> CommandResult {
@@ -495,8 +549,32 @@ final class AppEnvironment: ObservableObject {
 
     private func updateShelfAndPersist() {
         guard !isLoading else { return }
+        if !notchConfig.enabled {
+            notchIslandActivityCenter.hide()
+        } else if notchIslandActivityCenter.presentationState == .hidden {
+            notchIslandActivityCenter.collapse()
+        }
         updateNotchShelf()
         persist()
+    }
+
+    private func startNotchIslandObservation() {
+        notchIslandActivityCenter.$presentationState
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.updateNotchShelf()
+                }
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.updateNotchShelf()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func persist() {

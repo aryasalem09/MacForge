@@ -60,4 +60,49 @@ final class BulkRenameEngineTests: XCTestCase {
         XCTAssertFalse(results.first?.success == true)
         XCTAssertEqual(results.first?.message, "Rename blocked because one or more destination names collide.")
     }
+
+    func testExistingDestinationCollisionIsDetected() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let source = directory.appendingPathComponent("report.txt")
+        let existing = directory.appendingPathComponent("final-report.txt")
+        try Data("source".utf8).write(to: source)
+        try Data("existing".utf8).write(to: existing)
+
+        let request = BulkRenameRequest(prefix: "final-", suffix: "", findText: "", replaceText: "", sequenceEnabled: false, sequenceStart: 1, preserveExtension: true)
+        let preview = BulkRenameEngine().preview(urls: [source], request: request)
+
+        XCTAssertTrue(preview.first?.hasCollision == true)
+        XCTAssertFalse(BulkRenameEngine().canApply(preview))
+        XCTAssertEqual(try String(contentsOf: existing), "existing")
+    }
+
+    func testApplyRenamesRealFilesAfterSafePreview() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = directory.appendingPathComponent("report-a.txt")
+        let second = directory.appendingPathComponent("report-b.txt")
+        try Data("one".utf8).write(to: first)
+        try Data("two".utf8).write(to: second)
+
+        let request = BulkRenameRequest(prefix: "done-", suffix: "", findText: "", replaceText: "", sequenceEnabled: true, sequenceStart: 3, preserveExtension: true)
+        let preview = BulkRenameEngine().preview(urls: [first, second], request: request)
+
+        XCTAssertTrue(BulkRenameEngine().canApply(preview))
+        let results = BulkRenameEngine().apply(previews: preview)
+
+        XCTAssertEqual(results.filter(\.success).count, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("done-report-a-003.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("done-report-b-004.txt").path))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
 }

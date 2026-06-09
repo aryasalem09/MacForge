@@ -18,6 +18,22 @@ final class FileRuleEngineTests: XCTestCase {
         XCTAssertTrue(FileRuleEngine().matches(rule, candidate: candidate, now: now))
     }
 
+    func testDisabledRuleNeverMatches() {
+        let rule = FileRule(name: "Disabled", matchKind: .filenameContains("report"), action: .moveToTrash, isEnabled: false)
+        let candidate = FileCandidate(url: URL(fileURLWithPath: "/tmp/report.txt"), sizeBytes: 100, modificationDate: Date())
+
+        XCTAssertFalse(FileRuleEngine().matches(rule, candidate: candidate))
+    }
+
+    func testFilenameAndLargeFileMatches() {
+        let namedRule = FileRule(name: "Invoices", matchKind: .filenameContains("invoice"), action: .moveToTrash)
+        let largeRule = FileRule(name: "Large", matchKind: .largerThanMB(2), action: .moveToTrash)
+        let candidate = FileCandidate(url: URL(fileURLWithPath: "/tmp/Invoice-June.pdf"), sizeBytes: 3 * 1_024 * 1_024, modificationDate: Date())
+
+        XCTAssertTrue(FileRuleEngine().matches(namedRule, candidate: candidate))
+        XCTAssertTrue(FileRuleEngine().matches(largeRule, candidate: candidate))
+    }
+
     func testPreviewBuildsDestination() {
         let destinationID = UUID()
         let rule = FileRule(name: "Docs", matchKind: .fileExtension("pdf"), action: .moveToFolder(destinationID))
@@ -28,6 +44,16 @@ final class FileRuleEngineTests: XCTestCase {
         }
 
         XCTAssertEqual(previews.first?.destinationURL?.path, "/tmp/dest/a.pdf")
+    }
+
+    func testTrashPreviewIsMarkedDestructive() {
+        let rule = FileRule(name: "Trash", matchKind: .fileExtension("tmp"), action: .moveToTrash)
+        let candidate = FileCandidate(url: URL(fileURLWithPath: "/tmp/cache.tmp"), sizeBytes: 100, modificationDate: Date())
+
+        let previews = FileRuleEngine().preview(rule: rule, candidates: [candidate]) { _ in nil }
+
+        XCTAssertEqual(previews.first?.actionDescription, "Move to Trash")
+        XCTAssertEqual(previews.first?.isDestructive, true)
     }
 
     func testDryRunOnlyBlocksApply() throws {
@@ -67,6 +93,53 @@ final class FileRuleEngineTests: XCTestCase {
         XCTAssertFalse(results.first?.success == true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(try String(contentsOf: destination), "existing")
+    }
+
+    func testDuplicateDestinationsBlockApplyWithoutMovingEitherFile() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = directory.appendingPathComponent("first/report.txt")
+        let second = directory.appendingPathComponent("second/report.txt")
+        let destination = directory.appendingPathComponent("Destination/report.txt")
+        try FileManager.default.createDirectory(at: first.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: first)
+        try Data("second".utf8).write(to: second)
+
+        let rule = FileRule(name: "Reports", matchKind: .fileExtension("txt"), action: .moveToFolder(UUID()), dryRunOnly: false)
+        let previews = [
+            FileRulePreview(fileURL: first, actionDescription: "Move to Destination", destinationURL: destination, isDestructive: false),
+            FileRulePreview(fileURL: second, actionDescription: "Move to Destination", destinationURL: destination, isDestructive: false)
+        ]
+
+        let results = FileOrganizerService().apply(previews: previews, rule: rule, dryRun: false)
+
+        XCTAssertFalse(results.first?.success == true)
+        XCTAssertTrue(results.first?.details.contains { $0.contains("Multiple files would write report.txt") } == true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testCopyApplyCopiesWithoutRemovingSource() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let source = directory.appendingPathComponent("note.txt")
+        let destination = directory.appendingPathComponent("Destination/note.txt")
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: source)
+
+        let rule = FileRule(name: "Copy", matchKind: .fileExtension("txt"), action: .copyToFolder(UUID()), dryRunOnly: false)
+        let preview = FileRulePreview(fileURL: source, actionDescription: "Copy to Destination", destinationURL: destination, isDestructive: false)
+
+        let results = FileOrganizerService().apply(previews: [preview], rule: rule, dryRun: false)
+
+        XCTAssertTrue(results.first?.success == true)
+        XCTAssertEqual(try String(contentsOf: source), "hello")
+        XCTAssertEqual(try String(contentsOf: destination), "hello")
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -110,6 +183,18 @@ final class DuplicateFinderTests: XCTestCase {
 
         try Data("abc".utf8).write(to: directory.appendingPathComponent("one.txt"))
         try Data("xyz".utf8).write(to: directory.appendingPathComponent("two.txt"))
+
+        let groups = await DuplicateFinder().findDuplicates(in: directory)
+
+        XCTAssertTrue(groups.isEmpty)
+    }
+
+    func testHiddenFilesAreSkipped() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try Data("same".utf8).write(to: directory.appendingPathComponent(".hidden-a"))
+        try Data("same".utf8).write(to: directory.appendingPathComponent(".hidden-b"))
 
         let groups = await DuplicateFinder().findDuplicates(in: directory)
 

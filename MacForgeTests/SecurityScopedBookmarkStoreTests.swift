@@ -30,4 +30,35 @@ final class SecurityScopedBookmarkStoreTests: XCTestCase {
 
         XCTAssertEqual(resolvedPath, path)
     }
+
+    @MainActor
+    func testPathBackedShortcutMetadataUsesSelectedFolder() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("one".utf8).write(to: directory.appendingPathComponent("one.txt"))
+        try Data("two".utf8).write(to: directory.appendingPathComponent("two.txt"))
+
+        let shortcut = FolderShortcut(name: "Folder", path: directory.path)
+        let metadata = await FolderAccessStore().metadata(for: shortcut)
+
+        XCTAssertEqual(metadata.itemCount, 2)
+        XCTAssertNotNil(metadata.lastModified)
+    }
+
+    @MainActor
+    func testPermissionSnapshotReflectsFileAccessAndDockToggleState() {
+        let missingAccess = PermissionCenter().snapshot(folderAccessCount: 0, experimentalDockTweaksEnabled: false)
+        let grantedAccess = PermissionCenter().snapshot(folderAccessCount: 2, experimentalDockTweaksEnabled: true)
+
+        XCTAssertEqual(missingAccess.first { $0.id == "file-access" }?.status, .limited)
+        XCTAssertEqual(missingAccess.first { $0.id == "dock-tweaks" }?.status, .disabled)
+        XCTAssertEqual(grantedAccess.first { $0.id == "file-access" }?.status, .granted)
+        XCTAssertEqual(grantedAccess.first { $0.id == "dock-tweaks" }?.status, .granted)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
 }

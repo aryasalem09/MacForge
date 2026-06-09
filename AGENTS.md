@@ -56,6 +56,18 @@ Keep the app buildable after every Codex run. If you touch source or project wir
 - Window list and focused-window actions must fail gracefully when an app refuses AX reads, moves, or resizes.
 - Tests must not require real Accessibility permission.
 
+## Notch Island
+
+- Notch Island work must use public AppKit/SwiftUI APIs only.
+- Use `NSScreen.safeAreaInsets`, `auxiliaryTopLeftArea`, and `auxiliaryTopRightArea` when available.
+- Do not use private notch, camera, menu bar, or display-server APIs.
+- Do not inject into SystemUIServer or attempt to replace the menu bar.
+- Do not draw interactive controls into pixels hidden by the physical camera cutout.
+- Keep external and non-notched display fallbacks explicit and safe.
+- Keep geometry and state tests hardware-independent by using synthetic screen metrics.
+- Do not call the feature "Dynamic Island" in app UI; use "Notch Island" or "Notch Shelf."
+- Do not copy Apple assets or exact proprietary visual design.
+
 ## App Intents
 
 - App Intents must be honestly wired or honestly labeled as scaffolding.

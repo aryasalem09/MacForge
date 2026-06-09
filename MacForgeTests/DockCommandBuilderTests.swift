@@ -21,4 +21,36 @@ final class DockCommandBuilderTests: XCTestCase {
         let settings = DockSettings(autoHide: true, tileSize: 400, magnification: false, magnificationSize: 64, position: .bottom, showRecentApps: true)
         XCTAssertThrowsError(try DockCommandBuilder().buildApplyCommands(for: settings))
     }
+
+    func testBuildResetCommandsUsesOnlyWhitelistedExecutables() throws {
+        let commands = try DockCommandBuilder().buildResetCommands()
+
+        XCTAssertEqual(commands.last?.executablePath, DockCommandBuilder.killallPath)
+        XCTAssertEqual(commands.last?.arguments, ["Dock"])
+        for command in commands {
+            XCTAssertNoThrow(try DockCommandBuilder().validate(command))
+        }
+    }
+
+    func testRejectsMalformedDefaultsCommand() {
+        let command = SafeCommand(
+            executablePath: DockCommandBuilder.defaultsPath,
+            arguments: ["write", "com.apple.finder", "AppleShowAllFiles", "-bool", "true"],
+            summary: "Wrong domain"
+        )
+
+        XCTAssertThrowsError(try DockCommandBuilder().validate(command))
+    }
+
+    func testDockServiceRequiresExperimentalSwitchForApplyAndReset() async {
+        let applyResults = await DockSettingsService().apply(.default, experimentalTweaksEnabled: false)
+        let resetResults = await DockSettingsService().resetToSystemDefaults(experimentalTweaksEnabled: false)
+
+        XCTAssertEqual(applyResults.count, 1)
+        XCTAssertEqual(resetResults.count, 1)
+        XCTAssertFalse(applyResults[0].success)
+        XCTAssertFalse(resetResults[0].success)
+        XCTAssertEqual(applyResults[0].title, "Experimental Dock Tweaks")
+        XCTAssertEqual(resetResults[0].title, "Experimental Dock Tweaks")
+    }
 }

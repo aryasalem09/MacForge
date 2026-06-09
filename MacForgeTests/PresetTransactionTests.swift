@@ -67,4 +67,81 @@ final class PresetTransactionTests: XCTestCase {
 
         XCTAssertTrue(results.contains { $0.title == "File Rule Rollback" && !$0.success })
     }
+
+    func testPresetRunnerExecutesActionsInOrderAndCapturesSnapshot() async {
+        let first = UUID()
+        let second = UUID()
+        let preset = AppPreset(
+            name: "Ordered",
+            iconName: "sparkles",
+            actions: [.openFolder(first), .runFileRule(second, dryRun: true)]
+        )
+        var executed: [String] = []
+
+        let transaction = await PresetRunner().run(
+            preset,
+            context: PresetExecutionContext(
+                runAction: { action in
+                    executed.append(action.label)
+                    return .success(action.label, "ok")
+                },
+                snapshotState: { ["Before": "yes"] },
+                rollbackSnapshot: { RollbackSnapshot(notchShelfEnabled: true) }
+            )
+        )
+
+        XCTAssertEqual(executed, ["Open Folder", "Preview File Rule"])
+        XCTAssertEqual(transaction.oldStateSnapshot["Before"], "yes")
+        XCTAssertEqual(transaction.results.map(\.title), ["Open Folder", "Preview File Rule"])
+        XCTAssertTrue(transaction.rollbackAvailable)
+        XCTAssertNotNil(transaction.finishedAt)
+    }
+
+    func testRollbackRestoresAllAvailableSnapshotParts() async {
+        let snapshot = RollbackSnapshot(
+            notchShelfEnabled: false,
+            dockSettings: .default,
+            wallpaperStates: [ScreenWallpaperState(id: "main", localizedName: "Main", imagePath: "/tmp/wallpaper.png")]
+        )
+        let transaction = PresetTransaction(
+            presetName: "Everything",
+            rollbackSnapshot: snapshot,
+            actions: [.toggleNotchShelf(true)]
+        )
+
+        let results = await RollbackManager().rollback(
+            transaction,
+            context: PresetRollbackContext(
+                restoreNotchShelf: { enabled in .success("Shelf", enabled ? "shown" : "hidden") },
+                restoreDockSettings: { settings in [.success("Dock", settings.position.rawValue)] },
+                restoreWallpapers: { states in [.success("Wallpaper", "\(states.count)")] }
+            )
+        )
+
+        XCTAssertEqual(results.map(\.title), ["Shelf", "Dock", "Wallpaper"])
+        XCTAssertTrue(results.allSatisfy(\.success))
+    }
+}
+
+final class CommandBusTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        _ = MacForgeCommandBus.shared.drain()
+    }
+
+    override func tearDown() {
+        _ = MacForgeCommandBus.shared.drain()
+        super.tearDown()
+    }
+
+    func testCommandBusPersistsRequestsInOrderAndDrains() {
+        MacForgeCommandBus.shared.enqueue(.toggleNotchShelf)
+        MacForgeCommandBus.shared.enqueue(.tileFocusedWindow("leftHalf"))
+
+        let requests = MacForgeCommandBus.shared.drain()
+
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.map(\.kind), [.toggleNotchShelf, .tileFocusedWindow("leftHalf")])
+        XCTAssertTrue(MacForgeCommandBus.shared.drain().isEmpty)
+    }
 }

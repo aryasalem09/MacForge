@@ -1,4 +1,92 @@
-# MacForge v0.2 Hardening Report
+# MacForge Development Report
+
+## v0.25 Notch Island Sprint
+
+Date: June 9, 2026
+
+### Summary
+
+MacForge now has a focused Notch Island implementation that keeps the original safety model intact while making the notch feature feel less like a wide toolbar and more like a camera-anchored Mac activity surface. The feature uses public `NSScreen` safe-area and auxiliary top-area geometry, keeps controls below the physical camera cutout, and falls back to a top-center island on non-notched displays.
+
+### What Changed
+
+- Added `NotchGeometryService` with Codable screen metrics, camera-gap inference, safe fallback geometry, and frame targets for collapsed, compact, and expanded island states.
+- Added `NotchIslandPresentationState`, `NotchIslandActivity`, and `NotchIslandActivityCenter` for runtime state transitions and command-result activity mapping.
+- Updated `NotchShelfConfig` with island/classic mode, collapsed/compact/expanded sizing, behavior controls, auto-collapse delay, material style, and backwards-compatible decoding.
+- Reworked `NotchShelfWindowController` to animate between island frames while preserving Classic Shelf mode.
+- Added collapsed, compact, expanded, activity, and controls views for the new Notch Island UI.
+- Wired command results, window actions, presets, and duplicate scans into compact activity feedback.
+- Linked `AppIntents.framework` so App Intents metadata is emitted during build.
+- Updated Notch settings with mode, behavior, size, widgets, reset, and public-API limitation controls.
+
+### Geometry Approach
+
+- Prefer `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` when both are available.
+- Infer the camera gap as the space between those auxiliary top areas.
+- Use `safeAreaInsets.top` as a secondary notch signal when auxiliary areas are unavailable.
+- Use a centered top fallback on non-notched and external displays.
+- Clamp all frames to screen bounds and place interactive frames below the safe camera/menu-bar area.
+- Keep tests synthetic so they do not require real notched hardware.
+
+### Tests Added
+
+- `NotchGeometryServiceTests`
+  - camera gap inferred from auxiliary top areas
+  - centered fallback from safe-area-only metrics
+  - non-notched display fallback
+  - small display clamping
+  - expanded frame below safe top area
+- `NotchIslandStateTests`
+  - activity moves island to compact state
+  - activity auto-expiration collapses compact island
+  - command-result failure maps to error activity
+  - manual expand/collapse/hide transitions
+  - default island config stays small and island-first
+
+### Known Limitations
+
+- Main display only is the MVP for placement.
+- External displays use a top-center fallback if no notch geometry is available.
+- macOS does not expose a public exact physical camera cutout rectangle.
+- MacForge cannot draw into hidden camera pixels and cannot become a true OS-level iPhone island.
+- The expanded panel is intentionally original MacForge UI and does not copy Apple assets or proprietary visual design.
+
+### Manual Testing Checklist
+
+- Launch MacForge and enable Notch Shelf.
+- Confirm default mode is Notch Island and the idle state is a small black pill.
+- Hover or click the pill and confirm it expands downward smoothly.
+- Run window actions and confirm compact activity appears and auto-collapses.
+- Run a preset and confirm current activity and recent results update.
+- Run duplicate scan and confirm the island reports the scan result.
+- Turn off Accessibility permission and confirm window buttons are disabled with a permission hint.
+- Toggle Classic Shelf mode and confirm the older wide HUD still appears.
+- Enable click-through mode and confirm the warning matches button behavior.
+- Test with an external display and confirm top-center fallback behavior.
+
+### Verification
+
+Regular build passed during implementation, then the requested clean build and final test pass both succeeded.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' build
+```
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' clean build
+```
+
+Result: `** CLEAN SUCCEEDED **` and `** BUILD SUCCEEDED **`
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test
+```
+
+Result: `** TEST SUCCEEDED **`
+
+The final test run executed 50 unit tests, including the new geometry and state-machine tests. Tests still avoid real Accessibility permission, real Dock changes, real wallpaper changes, protected folders, Shortcuts execution, and real notched hardware.
+
+## v0.2 Hardening Report
 
 ## Summary
 

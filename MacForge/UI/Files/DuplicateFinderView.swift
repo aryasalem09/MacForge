@@ -53,10 +53,18 @@ struct DuplicateFinderView: View {
         }
 
         isScanning = true
+        environment.notchIslandActivityCenter.showActivity(
+            kind: .duplicateScan,
+            title: "Duplicate Scan",
+            message: shortcut.name,
+            symbolName: "doc.on.doc",
+            progress: nil
+        )
         Task {
             groups = await environment.folderAccessStore.withResolvedURL(shortcut) { url in
                 await environment.duplicateFinder.findDuplicates(in: url)
             }
+            environment.append(.success("Duplicate Scan", "Found \(groups.count) duplicate group(s)."))
             isScanning = false
         }
     }
