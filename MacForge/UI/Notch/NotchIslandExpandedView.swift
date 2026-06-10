@@ -10,13 +10,7 @@ struct NotchIslandExpandedView: View {
         let snapshot = liveIslandCoordinator.currentSnapshot
 
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                if environment.notchConfig.showCurrentApp {
-                    Label(NSWorkspace.shared.frontmostApplication?.localizedName ?? "No App", systemImage: "app.dashed")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(1)
-                }
+            HStack {
                 Spacer()
                 Button {
                     activityCenter.collapse()
@@ -32,6 +26,13 @@ struct NotchIslandExpandedView: View {
 
             liveSnapshotCard(snapshot)
 
+            if environment.notchConfig.showCurrentApp {
+                Label(NSWorkspace.shared.frontmostApplication?.localizedName ?? "No App", systemImage: "app.dashed")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+            }
+
             NotchIslandControlsView()
 
             if environment.notchConfig.showRecentResults {
@@ -39,14 +40,13 @@ struct NotchIslandExpandedView: View {
             }
         }
         .padding(14)
+        .padding(.top, environment.notchConfig.attachedContentTopPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            RoundedRectangle(cornerRadius: environment.notchConfig.cornerRadius)
-                .fill(backgroundFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: environment.notchConfig.cornerRadius)
-                        .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-                )
+            NotchIslandShellBackground(
+                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
+                materialStyle: environment.notchConfig.materialStyle
+            )
         }
         .accessibilityLabel("Expanded Notch Island")
     }
@@ -175,12 +175,4 @@ struct NotchIslandExpandedView: View {
         }
     }
 
-    private var backgroundFill: AnyShapeStyle {
-        switch environment.notchConfig.materialStyle {
-        case .dark:
-            AnyShapeStyle(Color.black.opacity(0.94))
-        case .glass:
-            AnyShapeStyle(.ultraThinMaterial)
-        }
-    }
 }

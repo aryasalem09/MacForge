@@ -12,6 +12,18 @@ final class NotchShelfWindowController {
         panel?.isVisible == true
     }
 
+    var currentPanelFrame: CGRect? {
+        panel?.frame
+    }
+
+    var currentWindowLevelDescription: String {
+        guard let panel else { return "none" }
+        if panel.level == .statusBar {
+            return "statusBar (\(panel.level.rawValue))"
+        }
+        return "\(panel.level.rawValue)"
+    }
+
     func show(config: NotchShelfConfig, environment: AppEnvironment) {
         let targetFrame = frame(for: config, environment: environment)
         let hadPanel = panel != nil
@@ -72,17 +84,11 @@ final class NotchShelfWindowController {
             return CGRect(x: 300, y: 700, width: config.collapsedWidth, height: config.collapsedHeight)
         }
 
-        let geometry = notchGeometryService.anchorGeometry(for: screen, config: config)
-        switch environment.notchIslandActivityCenter.presentationState {
-        case .hidden:
-            return geometry.collapsedFrame.rect
-        case .collapsed:
-            return geometry.collapsedFrame.rect
-        case .compact:
-            return geometry.compactFrame.rect
-        case .expanded:
-            return geometry.expandedFrame.rect
-        }
+        return notchGeometryService.panelFrame(
+            for: environment.notchIslandActivityCenter.presentationState,
+            screen: screen,
+            config: config
+        )
     }
 
     private func classicShelfFrame(for config: NotchShelfConfig) -> CGRect {

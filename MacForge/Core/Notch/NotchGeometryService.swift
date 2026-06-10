@@ -68,10 +68,24 @@ struct NotchAnchorGeometry: Hashable, Codable {
     var fallbackReason: String?
 }
 
+struct NotchAttachmentGeometry: Hashable, Codable {
+    var screenID: String
+    var hasLikelyNotch: Bool
+    var cameraGapFrame: CGRectCodable
+    var attachedShellFrame: CGRectCodable
+    var collapsedContentFrame: CGRectCodable
+    var compactContentFrame: CGRectCodable
+    var expandedContentFrame: CGRectCodable
+    var menuBarBandFrame: CGRectCodable
+    var safeInteractiveTopY: Double
+    var fallbackReason: String?
+}
+
 struct NotchGeometryService {
     private let margin: CGFloat = 16
     private let defaultCameraGapWidth: CGFloat = 210
     private let defaultCameraGapHeight: CGFloat = 34
+    private let fallbackTopPadding: CGFloat = 8
 
     func metrics(for screen: NSScreen) -> NotchScreenMetrics {
         let leftArea = screen.auxiliaryTopLeftArea
@@ -100,58 +114,145 @@ struct NotchGeometryService {
     }
 
     func anchorGeometry(metrics: NotchScreenMetrics, config: NotchShelfConfig = .default) -> NotchAnchorGeometry {
+        let geometry = attachmentGeometry(metrics: metrics, config: config)
+        return NotchAnchorGeometry(
+            screenID: geometry.screenID,
+            hasLikelyNotch: geometry.hasLikelyNotch,
+            cameraGapFrame: geometry.cameraGapFrame,
+            collapsedFrame: geometry.collapsedContentFrame,
+            compactFrame: geometry.compactContentFrame,
+            expandedFrame: geometry.expandedContentFrame,
+            fallbackReason: geometry.fallbackReason
+        )
+    }
+
+    func attachmentGeometry(for screen: NSScreen, config: NotchShelfConfig) -> NotchAttachmentGeometry {
+        attachmentGeometry(metrics: metrics(for: screen), config: config)
+    }
+
+    func attachmentGeometry(metrics: NotchScreenMetrics, config: NotchShelfConfig = .default) -> NotchAttachmentGeometry {
         let screenFrame = metrics.screenFrame.rect
         let topInset = CGFloat(metrics.safeAreaInsets.top)
         let hasAuxiliaryGap = inferredAuxiliaryGap(metrics: metrics) != nil
         let hasLikelyNotch = metrics.hasLikelyNotch || hasAuxiliaryGap || topInset > 0
         let cameraGapFrame = cameraGap(metrics: metrics)
-        let anchorCenterX = cameraGapFrame.midX
-        let baseTopY = hasLikelyNotch ? cameraGapFrame.minY : screenFrame.maxY - margin
-        let adjustedTopY = baseTopY + CGFloat(config.islandVerticalOffset.clamped(to: -24...24))
-        let safeTopY = min(
-            max(screenFrame.minY + margin, adjustedTopY),
-            hasLikelyNotch ? cameraGapFrame.minY : screenFrame.maxY - margin
+        let horizontalOffset = CGFloat(config.islandHorizontalOffset.clamped(to: -80...80))
+        let anchorCenterX = cameraGapFrame.midX + horizontalOffset
+
+        let configuredCollapsedWidth = min(max(CGFloat(config.collapsedWidth), 160), 280)
+        let collapsedWidth = clampedWidth(max(configuredCollapsedWidth, min(cameraGapFrame.width, 220)), screenFrame: screenFrame)
+        let collapsedHeight = min(max(CGFloat(config.collapsedHeight), 28), 60)
+        let compactWidth = clampedWidth(min(max(CGFloat(config.compactWidth), collapsedWidth + 72), 420), screenFrame: screenFrame)
+        let compactHeight = min(max(CGFloat(config.compactHeight), 40), 70)
+        let expandedWidth = clampedWidth(CGFloat(config.expandedWidth), screenFrame: screenFrame)
+
+        if !hasLikelyNotch || !config.overlayMenuBarForAttachedNotch {
+            let topY = min(
+                max(screenFrame.minY + margin, screenFrame.maxY - fallbackTopPadding + CGFloat(config.islandVerticalOffset.clamped(to: -40...40))),
+                screenFrame.maxY - fallbackTopPadding
+            )
+            let collapsedFrame = frame(centerX: anchorCenterX, topY: topY, width: collapsedWidth, height: collapsedHeight, screenFrame: screenFrame)
+            let compactFrame = frame(centerX: anchorCenterX, topY: topY, width: compactWidth, height: compactHeight, screenFrame: screenFrame)
+            let expandedHeight = min(CGFloat(config.expandedHeight), max(180, topY - screenFrame.minY - margin))
+            let expandedFrame = frame(centerX: anchorCenterX, topY: topY, width: expandedWidth, height: expandedHeight, screenFrame: screenFrame)
+
+            return NotchAttachmentGeometry(
+                screenID: metrics.screenID,
+                hasLikelyNotch: hasLikelyNotch,
+                cameraGapFrame: CGRectCodable(cameraGapFrame),
+                attachedShellFrame: CGRectCodable(collapsedFrame),
+                collapsedContentFrame: CGRectCodable(collapsedFrame),
+                compactContentFrame: CGRectCodable(compactFrame),
+                expandedContentFrame: CGRectCodable(expandedFrame),
+                menuBarBandFrame: CGRectCodable(CGRect(x: screenFrame.minX, y: topY, width: screenFrame.width, height: 0)),
+                safeInteractiveTopY: Double(topY),
+                fallbackReason: config.overlayMenuBarForAttachedNotch ? fallbackReason(metrics: metrics, hasLikelyNotch: hasLikelyNotch) : "Attached menu-bar overlay is disabled; using conservative below-menu placement."
+            )
+        }
+
+        let verticalExtension = CGFloat(config.islandVerticalOffset.clamped(to: -40...40))
+        let shellHeight = (CGFloat(config.attachedShellHeight) + verticalExtension).clamped(to: 20...80)
+        let shellWidth = clampedWidth(max(collapsedWidth, min(cameraGapFrame.width + 22, 280)), screenFrame: screenFrame)
+        let shellFrame = topFlushedFrame(
+            centerX: anchorCenterX,
+            topY: screenFrame.maxY,
+            width: shellWidth,
+            height: shellHeight,
+            screenFrame: screenFrame
         )
 
-        let configuredCollapsedWidth = min(max(CGFloat(config.collapsedWidth), 160), 220)
-        let collapsedWidth = clampedWidth(max(configuredCollapsedWidth, min(cameraGapFrame.width, 220)), screenFrame: screenFrame)
-        let collapsedHeight = CGFloat(config.collapsedHeight)
-        let compactWidth = clampedWidth(min(max(CGFloat(config.compactWidth), collapsedWidth + 72), 340), screenFrame: screenFrame)
-        let compactHeight = CGFloat(config.compactHeight)
-        let expandedWidth = clampedWidth(CGFloat(config.expandedWidth), screenFrame: screenFrame)
-        let expandedHeight = min(CGFloat(config.expandedHeight), max(180, safeTopY - screenFrame.minY - margin))
+        let menuBandHeight = max(cameraGapFrame.height, 1)
+        let menuBarBandFrame = CGRect(
+            x: screenFrame.minX,
+            y: screenFrame.maxY - menuBandHeight,
+            width: screenFrame.width,
+            height: menuBandHeight
+        )
+        let safeInteractiveTopY = cameraGapFrame.minY
 
-        let collapsedFrame = frame(
+        let collapsedContentFrame = frameAllowingTopFlush(
             centerX: anchorCenterX,
-            topY: safeTopY,
+            topY: safeInteractiveTopY,
             width: collapsedWidth,
             height: collapsedHeight,
             screenFrame: screenFrame
         )
-        let compactFrame = frame(
+        let compactContentFrame = frameAllowingTopFlush(
             centerX: anchorCenterX,
-            topY: safeTopY,
+            topY: safeInteractiveTopY,
             width: compactWidth,
             height: compactHeight,
             screenFrame: screenFrame
         )
-        let expandedFrame = frame(
+        let expandedHeight = min(CGFloat(config.expandedHeight), max(180, safeInteractiveTopY - screenFrame.minY - margin))
+        let expandedContentFrame = frameAllowingTopFlush(
             centerX: anchorCenterX,
-            topY: safeTopY,
+            topY: safeInteractiveTopY,
             width: expandedWidth,
             height: expandedHeight,
             screenFrame: screenFrame
         )
 
-        return NotchAnchorGeometry(
+        return NotchAttachmentGeometry(
             screenID: metrics.screenID,
             hasLikelyNotch: hasLikelyNotch,
             cameraGapFrame: CGRectCodable(cameraGapFrame),
-            collapsedFrame: CGRectCodable(collapsedFrame),
-            compactFrame: CGRectCodable(compactFrame),
-            expandedFrame: CGRectCodable(expandedFrame),
+            attachedShellFrame: CGRectCodable(shellFrame),
+            collapsedContentFrame: CGRectCodable(collapsedContentFrame),
+            compactContentFrame: CGRectCodable(compactContentFrame),
+            expandedContentFrame: CGRectCodable(expandedContentFrame),
+            menuBarBandFrame: CGRectCodable(menuBarBandFrame),
+            safeInteractiveTopY: Double(safeInteractiveTopY),
             fallbackReason: fallbackReason(metrics: metrics, hasLikelyNotch: hasLikelyNotch)
         )
+    }
+
+    func panelFrame(for state: NotchIslandPresentationState, metrics: NotchScreenMetrics, config: NotchShelfConfig = .default) -> CGRect {
+        let geometry = attachmentGeometry(metrics: metrics, config: config)
+        return panelFrame(for: state, geometry: geometry, config: config)
+    }
+
+    func panelFrame(for state: NotchIslandPresentationState, screen: NSScreen, config: NotchShelfConfig) -> CGRect {
+        let geometry = attachmentGeometry(for: screen, config: config)
+        return panelFrame(for: state, geometry: geometry, config: config)
+    }
+
+    func panelFrame(for state: NotchIslandPresentationState, geometry: NotchAttachmentGeometry, config: NotchShelfConfig = .default) -> CGRect {
+        let contentFrame: CGRect
+        switch state {
+        case .hidden, .collapsed:
+            contentFrame = geometry.collapsedContentFrame.rect
+        case .compact:
+            contentFrame = geometry.compactContentFrame.rect
+        case .expanded:
+            contentFrame = geometry.expandedContentFrame.rect
+        }
+
+        guard geometry.hasLikelyNotch, config.overlayMenuBarForAttachedNotch else {
+            return contentFrame
+        }
+
+        return geometry.attachedShellFrame.rect.union(contentFrame).integral
     }
 
     private func cameraGap(metrics: NotchScreenMetrics) -> CGRect {
@@ -203,9 +304,21 @@ struct NotchGeometryService {
         min(width, max(120, screenFrame.width - margin * 2))
     }
 
+    private func topFlushedFrame(centerX: CGFloat, topY: CGFloat, width: CGFloat, height: CGFloat, screenFrame: CGRect) -> CGRect {
+        let x = min(max(centerX - width / 2, screenFrame.minX + margin), screenFrame.maxX - margin - width)
+        let y = topY - height
+        return CGRect(x: x, y: y, width: width, height: height).integral
+    }
+
     private func frame(centerX: CGFloat, topY: CGFloat, width: CGFloat, height: CGFloat, screenFrame: CGRect) -> CGRect {
         let x = min(max(centerX - width / 2, screenFrame.minX + margin), screenFrame.maxX - margin - width)
         let y = min(max(topY - height, screenFrame.minY + margin), screenFrame.maxY - margin - height)
+        return CGRect(x: x, y: y, width: width, height: height).integral
+    }
+
+    private func frameAllowingTopFlush(centerX: CGFloat, topY: CGFloat, width: CGFloat, height: CGFloat, screenFrame: CGRect) -> CGRect {
+        let x = min(max(centerX - width / 2, screenFrame.minX + margin), screenFrame.maxX - margin - width)
+        let y = min(max(topY - height, screenFrame.minY + margin), screenFrame.maxY - height)
         return CGRect(x: x, y: y, width: width, height: height).integral
     }
 
@@ -229,8 +342,8 @@ struct NotchGeometryService {
     }
 }
 
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
+private extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
     }
 }

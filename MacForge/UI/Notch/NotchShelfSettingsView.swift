@@ -66,13 +66,7 @@ struct NotchShelfSettingsView: View {
                 Toggle("Expand on hover", isOn: $environment.notchConfig.expandOnHover)
                 Toggle("Expand on click", isOn: $environment.notchConfig.expandOnClick)
                 Toggle("Main display only", isOn: $environment.notchConfig.mainDisplayOnly)
-                HStack {
-                    Slider(value: $environment.notchConfig.islandVerticalOffset, in: -24...24, step: 1) {
-                        Text("Placement nudge")
-                    }
-                    Text("\(environment.notchConfig.islandVerticalOffset, specifier: "%.0f") px")
-                        .frame(width: 70, alignment: .trailing)
-                }
+                Toggle("Overlay menu bar area for attached notch", isOn: $environment.notchConfig.overlayMenuBarForAttachedNotch)
                 Toggle("Show placement debug overlay", isOn: $environment.notchConfig.showPlacementDebugOverlay)
                 HStack {
                     Slider(value: $environment.notchConfig.autoCollapseDelay, in: 1...10, step: 0.5) {
@@ -91,8 +85,36 @@ struct NotchShelfSettingsView: View {
 
             liveIslandSourceSection
 
+            Section("Placement") {
+                slider("Vertical attach offset", value: $environment.notchConfig.islandVerticalOffset, range: -40...40, step: 1, suffix: "px") {
+                    Int(environment.notchConfig.islandVerticalOffset)
+                }
+                slider("Horizontal offset", value: $environment.notchConfig.islandHorizontalOffset, range: -80...80, step: 1, suffix: "px") {
+                    Int(environment.notchConfig.islandHorizontalOffset)
+                }
+                slider("Shell height", value: $environment.notchConfig.attachedShellHeight, range: 20...80, step: 1, suffix: "px") {
+                    Int(environment.notchConfig.attachedShellHeight)
+                }
+                HStack {
+                    Button("Snap to Detected Notch", systemImage: "scope") {
+                        environment.snapNotchIslandToDetectedNotch()
+                    }
+                    Button("Reset to Attached Defaults", systemImage: "arrow.counterclockwise") {
+                        environment.resetNotchIslandLayout()
+                    }
+                }
+                HStack {
+                    Button("Repair Notch Island Layout", systemImage: "wrench.and.screwdriver") {
+                        environment.repairNotchIslandLayout()
+                    }
+                    Button("Copy Notch Geometry Debug Info", systemImage: "doc.on.doc") {
+                        environment.copyNotchGeometryDebugInfo()
+                    }
+                }
+            }
+
             Section("Island Size") {
-                slider("Collapsed width", value: $environment.notchConfig.collapsedWidth, range: 160...260, step: 2, suffix: "px") {
+                slider("Collapsed width", value: $environment.notchConfig.collapsedWidth, range: 140...280, step: 2, suffix: "px") {
                     Int(environment.notchConfig.collapsedWidth)
                 }
                 slider("Collapsed height", value: $environment.notchConfig.collapsedHeight, range: 30...44, step: 1, suffix: "px") {
@@ -154,7 +176,7 @@ struct NotchShelfSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Button("Run Live Island Self-Test", systemImage: "waveform.path.ecg") {
+                        Button("Force Now Playing Test Card", systemImage: "waveform.path.ecg") {
                             environment.runLiveIslandSelfTest()
                         }
                         Button("Test Music Provider", systemImage: "music.note") {

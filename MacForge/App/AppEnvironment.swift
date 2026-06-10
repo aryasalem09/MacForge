@@ -116,7 +116,9 @@ final class AppEnvironment: ObservableObject {
         configurationURL = supportDirectory.appendingPathComponent("configuration.json")
 
         let loaded = Self.loadConfiguration(from: configurationURL)
-        notchConfig = loaded?.notchConfig ?? .default
+        var loadedNotchConfig = loaded?.notchConfig ?? .default
+        let repairedAttachedNotchLayout = loadedNotchConfig.repairAttachedNotchLayoutIfNeeded()
+        notchConfig = loadedNotchConfig
         liveIslandSettings = loaded?.liveIslandSettings ?? .default
         dockSettings = loaded?.dockSettings ?? .default
         pinnedFolders = loaded?.pinnedFolders ?? []
@@ -143,6 +145,9 @@ final class AppEnvironment: ObservableObject {
         startNotchIslandObservation()
         startCommandBusObservation()
         updateShelfAndPersist()
+        if repairedAttachedNotchLayout {
+            append(.success("Notch Island", "Reset old Notch Island layout to attached defaults."))
+        }
     }
 
     func refreshPermissions() {
@@ -184,20 +189,76 @@ final class AppEnvironment: ObservableObject {
     }
 
     func resetNotchIslandLayout() {
-        let defaults = NotchShelfConfig.default
-        notchConfig.preferredStyle = .island
-        notchConfig.presentationState = .collapsed
-        notchConfig.collapsedWidth = defaults.collapsedWidth
-        notchConfig.collapsedHeight = defaults.collapsedHeight
-        notchConfig.compactWidth = defaults.compactWidth
-        notchConfig.compactHeight = defaults.compactHeight
-        notchConfig.expandedWidth = defaults.expandedWidth
-        notchConfig.expandedHeight = defaults.expandedHeight
-        notchConfig.cornerRadius = defaults.cornerRadius
-        notchConfig.islandVerticalOffset = defaults.islandVerticalOffset
-        notchConfig.showPlacementDebugOverlay = defaults.showPlacementDebugOverlay
+        notchConfig.resetToAttachedNotchDefaults(keepEnabled: true)
         notchIslandActivityCenter.collapse()
-        append(.success("Notch Island", "Reset island layout values."))
+        append(.success("Notch Island", "Reset island layout to attached notch defaults."))
+    }
+
+    func repairNotchIslandLayout() {
+        notchConfig.resetToAttachedNotchDefaults(keepEnabled: true)
+        liveIslandCoordinator.clearTransientState()
+        notchIslandActivityCenter.clearActivity()
+        notchIslandActivityCenter.collapse()
+        append(.success("Notch Island", "Repaired stale toolbar-style layout and re-anchored the island to the notch."))
+    }
+
+    func snapNotchIslandToDetectedNotch() {
+        notchConfig.islandHorizontalOffset = 0
+        notchConfig.islandVerticalOffset = 0
+        notchConfig.overlayMenuBarForAttachedNotch = true
+        notchConfig.configVersion = NotchShelfConfig.currentConfigVersion
+        notchIslandActivityCenter.collapse()
+        append(.success("Notch Island", "Snapped placement to the detected notch geometry."))
+    }
+
+    func copyNotchGeometryDebugInfo() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            append(.failure("Notch Geometry", "No screen was available for geometry diagnostics."))
+            return
+        }
+
+        let service = NotchGeometryService()
+        let metrics = service.metrics(for: screen)
+        let geometry = service.attachmentGeometry(metrics: metrics, config: notchConfig)
+        let collapsedPanelFrame = service.panelFrame(for: .collapsed, geometry: geometry, config: notchConfig)
+        let compactPanelFrame = service.panelFrame(for: .compact, geometry: geometry, config: notchConfig)
+        let expandedPanelFrame = service.panelFrame(for: .expanded, geometry: geometry, config: notchConfig)
+        let panelFrame = notchShelfWindowController.currentPanelFrame
+        let lines = [
+            "screenID: \(metrics.screenID)",
+            "NSScreen.main.frame: \(format(screen.frame))",
+            "NSScreen.main.visibleFrame: \(format(screen.visibleFrame))",
+            "NSScreen.main.safeAreaInsets: top \(screen.safeAreaInsets.top), left \(screen.safeAreaInsets.left), bottom \(screen.safeAreaInsets.bottom), right \(screen.safeAreaInsets.right)",
+            "NSScreen.main.auxiliaryTopLeftArea: \(screen.auxiliaryTopLeftArea.map { format($0) } ?? "nil")",
+            "NSScreen.main.auxiliaryTopRightArea: \(screen.auxiliaryTopRightArea.map { format($0) } ?? "nil")",
+            "backingScaleFactor: \(screen.backingScaleFactor)",
+            "cameraGapFrame: \(format(geometry.cameraGapFrame.rect))",
+            "attachedShellFrame: \(format(geometry.attachedShellFrame.rect))",
+            "collapsedContentFrame: \(format(geometry.collapsedContentFrame.rect))",
+            "compactContentFrame: \(format(geometry.compactContentFrame.rect))",
+            "expandedContentFrame: \(format(geometry.expandedContentFrame.rect))",
+            "collapsedPanelFrame: \(format(collapsedPanelFrame))",
+            "compactPanelFrame: \(format(compactPanelFrame))",
+            "expandedPanelFrame: \(format(expandedPanelFrame))",
+            "currentNSPanelFrame: \(panelFrame.map(format) ?? "none")",
+            "currentNSWindowLevel: \(notchShelfWindowController.currentWindowLevelDescription)",
+            "placementNudgeY: \(notchConfig.islandVerticalOffset)",
+            "placementNudgeX: \(notchConfig.islandHorizontalOffset)",
+            "attachedShellHeight: \(notchConfig.attachedShellHeight)",
+            "overlayMenuBarForAttachedNotch: \(notchConfig.overlayMenuBarForAttachedNotch)",
+            "classicShelfEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .classicShelf)",
+            "notchIslandModeEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .island)",
+            "fallbackReason: \(geometry.fallbackReason ?? "none")"
+        ]
+        let text = lines.joined(separator: "\n")
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        append(.success("Notch Geometry", "Copied Notch Island geometry debug info.", details: [
+            "Shell: \(format(geometry.attachedShellFrame.rect))",
+            "Panel: \(panelFrame.map(format) ?? "none")",
+            "Level: \(notchShelfWindowController.currentWindowLevelDescription)"
+        ]))
     }
 
     func disableNotchIslandFromSafety() {
@@ -838,23 +899,12 @@ final class AppEnvironment: ObservableObject {
     }
 
     private func resetNotchConfigToSafeDefaults() {
-        let defaults = NotchShelfConfig.default
-        notchConfig.preferredStyle = .island
-        notchConfig.presentationState = .collapsed
-        notchConfig.width = defaults.width
-        notchConfig.height = defaults.height
-        notchConfig.collapsedWidth = defaults.collapsedWidth
-        notchConfig.collapsedHeight = defaults.collapsedHeight
-        notchConfig.compactWidth = defaults.compactWidth
-        notchConfig.compactHeight = defaults.compactHeight
-        notchConfig.expandedWidth = defaults.expandedWidth
-        notchConfig.expandedHeight = defaults.expandedHeight
-        notchConfig.cornerRadius = defaults.cornerRadius
-        notchConfig.opacity = defaults.opacity
-        notchConfig.materialStyle = defaults.materialStyle
-        notchConfig.islandVerticalOffset = defaults.islandVerticalOffset
-        notchConfig.showPlacementDebugOverlay = defaults.showPlacementDebugOverlay
+        notchConfig.resetToAttachedNotchDefaults(keepEnabled: true)
         notchConfig.ignoreMouseEventsWhenInactive = false
+    }
+
+    private func format(_ rect: CGRect) -> String {
+        "x \(Int(rect.origin.x)), y \(Int(rect.origin.y)), w \(Int(rect.width)), h \(Int(rect.height))"
     }
 
     private func currentConfigurationData() throws -> Data {

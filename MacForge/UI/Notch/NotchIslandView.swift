@@ -1,5 +1,59 @@
 import SwiftUI
 
+struct AttachedNotchShellShape: Shape {
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let radius = min(cornerRadius, rect.width / 2, rect.height)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+struct NotchIslandShellBackground: View {
+    var cornerRadius: CGFloat
+    var materialStyle: NotchIslandMaterialStyle
+
+    var body: some View {
+        AttachedNotchShellShape(cornerRadius: cornerRadius)
+            .fill(backgroundFill)
+            .overlay {
+                AttachedNotchShellShape(cornerRadius: cornerRadius)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.26), radius: 10, x: 0, y: 5)
+    }
+
+    private var backgroundFill: AnyShapeStyle {
+        switch materialStyle {
+        case .dark:
+            AnyShapeStyle(Color.black.opacity(0.96))
+        case .glass:
+            AnyShapeStyle(.ultraThinMaterial)
+        }
+    }
+}
+
+extension NotchShelfConfig {
+    var attachedContentTopPadding: CGFloat {
+        guard overlayMenuBarForAttachedNotch else { return 0 }
+        return CGFloat((attachedShellHeight - compactHeight).clamped(to: 0...44))
+    }
+}
+
 struct NotchIslandView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
@@ -90,6 +144,12 @@ struct NotchIslandView: View {
     private var debugOverlayText: String {
         let config = environment.notchConfig
         let snapshot = liveIslandCoordinator.currentSnapshot
-        return "state \(activityCenter.presentationState.rawValue) | \(snapshot.kind.rawValue) | c \(Int(config.collapsedWidth))x\(Int(config.collapsedHeight)) | m \(Int(config.compactWidth))x\(Int(config.compactHeight)) | y \(Int(config.islandVerticalOffset))"
+        return "state \(activityCenter.presentationState.rawValue) | \(snapshot.kind.rawValue) | c \(Int(config.collapsedWidth))x\(Int(config.collapsedHeight)) | m \(Int(config.compactWidth))x\(Int(config.compactHeight)) | shell \(Int(config.attachedShellHeight)) | x \(Int(config.islandHorizontalOffset)) | y \(Int(config.islandVerticalOffset))"
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

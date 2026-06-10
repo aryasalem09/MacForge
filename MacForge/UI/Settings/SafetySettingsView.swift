@@ -31,12 +31,15 @@ struct SafetySettingsView: View {
                         }
                     }
                     HStack {
-                        Button("Reset Notch Layout", systemImage: "arrow.counterclockwise") {
-                            environment.resetNotchIslandLayout()
+                        Button("Repair Notch Island Layout", systemImage: "wrench.and.screwdriver") {
+                            environment.repairNotchIslandLayout()
                         }
                         Button("Clear Live State", systemImage: "xmark.circle") {
                             environment.clearLiveIslandState()
                         }
+                    }
+                    Button("Copy Notch Geometry Debug Info", systemImage: "doc.on.doc") {
+                        environment.copyNotchGeometryDebugInfo()
                     }
                 }
 

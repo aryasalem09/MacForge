@@ -4,7 +4,7 @@ Date: June 9, 2026
 
 MacForge now targets practical NotchNook-style user-visible parity while staying inside public macOS APIs, explicit user consent, and honest limitations. The comparison below is based on inspected MacForge code and public competitor descriptions from The Verge, MacStories, MediaMate, App Store listings, and Boring Notch.
 
-v0.26.1 adds runtime recovery fixes and provider diagnostics. Apple Music is implemented through Automation and parser tests, but should be marked manually verified only after this branch is run with active Music playback and MacForge Automation consent.
+v0.26.1 adds runtime recovery fixes and provider diagnostics. v0.26.2 adds top-flush attached notch geometry after a user screenshot showed the pill floating below the physical notch. Apple Music is implemented through Automation and parser tests, but should be marked manually verified only after this branch is run with active Music playback and MacForge Automation consent.
 
 ## Sources Inspected
 
@@ -19,7 +19,7 @@ v0.26.1 adds runtime recovery fixes and provider diagnostics. Apple Music is imp
 
 | Behavior | Status | MacForge implementation | Limitation |
 | --- | --- | --- | --- |
-| 1. Collapsed notch pill | Already implemented | `NotchIslandCollapsedView` is a tiny black pill, and `NotchGeometryService` anchors it below public safe-area/notch geometry. | It cannot draw into hidden camera pixels. |
+| 1. Collapsed notch pill | Implemented, needs screenshot QA | `NotchAttachmentGeometry` separates a top-flush black shell from lower interactive content, and the panel frame now includes the attached shell on notched displays. | It cannot draw into hidden camera pixels; exact visual fit may need calibration on different MacBook models. |
 | 2. Hover/click/swipe expansion | Implement now | Hover/click existed in `NotchIslandView`; this sprint adds vertical swipe expand/collapse and horizontal media previous/next gestures when supported. | Trackpad gesture recognition is app-panel local, not an OS gesture hook. |
 | 3. Music now playing | Implemented, needs manual Automation verification | `AppleMusicProvider` and `SpotifyProvider` poll public Automation/AppleScript for title, artist, album, playback state, elapsed, and duration when the app is running. v0.26.1 adds provider diagnostics, Apple Music test action, and permission surfacing. | Requires macOS Automation consent. No private MediaRemote usage. |
 | 4. Media controls | Implement now | Apple Music and Spotify support play/pause/next/previous/open app. QuickTime supports best-effort play/pause/open app. | Browser controls need the optional bridge; generic media apps expose open-only. |
@@ -29,7 +29,7 @@ v0.26.1 adds runtime recovery fixes and provider diagnostics. Apple Music is imp
 | 8. Downloads activity | Implement now | `DownloadsProvider` watches only the user-selected folder bookmark for `.download`, `.crdownload`, and `.part` files. | Progress is indeterminate unless a future browser/manager bridge provides total bytes. |
 | 9. Widgets | Already implemented / Implement now | Existing clock/current app/window/preset/folder widgets remain; timer controls and live snapshot cards were added. | Weather/calendar widgets are not implemented in this sprint. |
 | 10. Recent activity/results | Already implemented | `NotchIslandActivityCenter` and command results show window, preset, file rule, duplicate scan, wallpaper, Dock, folder, timer, tray, and error activity. | Long-running progress is only as accurate as each MacForge task reports. |
-| 11. Customization | Implement now | Live Island settings cover source toggles, privacy mode, artwork, media persistence, downloads folder, diagnostics, and test providers. Existing island size/material/hover/click settings remain. | No private system HUD replacement or OS-level media API toggle. |
+| 11. Customization | Implement now | Live Island settings cover source toggles, privacy mode, artwork, media persistence, downloads folder, diagnostics, test providers, attached notch offsets, shell height, layout repair, and geometry debug copy. Existing island size/material/hover/click settings remain. | No private system HUD replacement or OS-level media API toggle. |
 | 12. Non-notched display fallback | Already implemented | `NotchGeometryService` uses public auxiliary top areas when available and safe top-center fallback otherwise; Classic Shelf remains available. | Main display remains the primary placement path. |
 
 ## Safety Classification

@@ -4,6 +4,7 @@
 
 - Base branch: `v0.26-notchnook-parity`
 - Recovery branch: `v0.26.1-notch-runtime-recovery`
+- Attachment branch: `v0.26.2-pixel-perfect-notch-attachment`
 
 ## Apple Music Finding
 
@@ -29,7 +30,9 @@ The geometry service placed island frames below the broader safe-area band:
 screen.maxY - safeAreaInsets.top - 6
 ```
 
-On notched screens this can sit visibly below the camera notch. The new rule anchors the island to the bottom edge of the inferred camera gap, clamps interactive content below the hidden camera area, and adds a persisted placement nudge.
+On notched screens this can sit visibly below the camera notch. v0.26.1 improved the low placement but still used the lower content frame as the whole `NSPanel` frame, so a user screenshot showed an obvious detached gap.
+
+v0.26.2 fixes the actual attachment bug by making the panel frame include a top-flush black shell whose top edge is `screen.frame.maxY`. Interactive content remains below the camera gap, while the visual shell touches the physical notch/menu-bar band. Stale toolbar-style configs are repaired automatically or through Repair Notch Island Layout.
 
 ## Dock Finding
 
@@ -40,4 +43,5 @@ Example presets such as Focus Mode and Presentation can enable Dock autohide whe
 - Provider diagnostics were too lossy to distinguish permission, parsing, unavailable, and active states.
 - Live Island presentation promotion was event-driven by snapshot changes only, so stale activity collapse could hide an active media snapshot.
 - Notch placement was conservative but too low for the intended visual effect.
+- The panel frame did not include a top-attached visual shell, so the black shape could not visually merge with the real notch.
 - Dock recovery existed as a reset action but not as an obvious user-facing recovery flow.

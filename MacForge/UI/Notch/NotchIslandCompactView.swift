@@ -9,60 +9,63 @@ struct NotchIslandCompactView: View {
         let snapshot = liveIslandCoordinator.currentSnapshot
 
         HStack(spacing: 10) {
-            LiveIslandIconView(snapshot: snapshot, size: 28)
+            if snapshot.kind == .idle {
+                Spacer(minLength: 0)
+            } else {
+                LiveIslandIconView(snapshot: snapshot, size: 28)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.kind == .idle ? "MacForge" : snapshot.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(snapshot.kind == .idle ? "Ready" : snapshot.subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snapshot.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(snapshot.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
 
-                if let progress = snapshot.progress {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
-                        .controlSize(.mini)
-                        .tint(snapshot.isError ? .orange : .mint)
-                } else if snapshot.kind == .download {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                        .controlSize(.mini)
-                        .tint(.mint)
+                    if let progress = snapshot.progress {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .controlSize(.mini)
+                            .tint(snapshot.isError ? .orange : .mint)
+                    } else if snapshot.kind == .download {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .controlSize(.mini)
+                            .tint(.mint)
+                    }
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            if !snapshot.actions.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(snapshot.actions.prefix(3)) { action in
-                        Button {
-                            perform(action)
-                        } label: {
-                            Image(systemName: playbackSymbol(for: action, snapshot: snapshot))
-                                .frame(width: 22, height: 22)
+                if !snapshot.actions.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(snapshot.actions.prefix(3)) { action in
+                            Button {
+                                perform(action)
+                            } label: {
+                                Image(systemName: playbackSymbol(for: action, snapshot: snapshot))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white.opacity(action.isEnabled ? 0.88 : 0.34))
+                            .disabled(!action.isEnabled)
+                            .help(action.title)
+                            .accessibilityLabel(action.title)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white.opacity(action.isEnabled ? 0.88 : 0.34))
-                        .disabled(!action.isEnabled)
-                        .help(action.title)
-                        .accessibilityLabel(action.title)
                     }
                 }
             }
         }
         .padding(.horizontal, 14)
+        .padding(.top, environment.notchConfig.attachedContentTopPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            Capsule()
-                .fill(.black.opacity(0.94))
-                .overlay(
-                    Capsule()
-                        .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-                )
+            NotchIslandShellBackground(
+                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
+                materialStyle: environment.notchConfig.materialStyle
+            )
         }
         .accessibilityLabel(snapshot.kind == .idle ? "Compact Notch Island" : snapshot.title)
     }

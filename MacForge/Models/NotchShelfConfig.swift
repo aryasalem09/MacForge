@@ -45,6 +45,9 @@ enum NotchIslandMaterialStyle: String, CaseIterable, Codable, Identifiable, Hash
 }
 
 struct NotchShelfConfig: Codable, Equatable, Hashable {
+    static let currentConfigVersion = 2
+
+    var configVersion: Int
     var enabled: Bool
     var preferredStyle: NotchShelfPreferredStyle
     var positionMode: NotchShelfPositionMode
@@ -74,11 +77,15 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
     var expandOnClick: Bool
     var mainDisplayOnly: Bool
     var islandVerticalOffset: Double
+    var islandHorizontalOffset: Double
+    var attachedShellHeight: Double
+    var overlayMenuBarForAttachedNotch: Bool
     var showPlacementDebugOverlay: Bool
     var customX: Double
     var customY: Double
 
     static let `default` = NotchShelfConfig(
+        configVersion: currentConfigVersion,
         enabled: false,
         preferredStyle: .island,
         positionMode: .automaticNotchAware,
@@ -108,12 +115,16 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnClick: true,
         mainDisplayOnly: true,
         islandVerticalOffset: 0,
+        islandHorizontalOffset: 0,
+        attachedShellHeight: 76,
+        overlayMenuBarForAttachedNotch: true,
         showPlacementDebugOverlay: false,
         customX: 0,
         customY: 0
     )
 
     init(
+        configVersion: Int = Self.currentConfigVersion,
         enabled: Bool,
         preferredStyle: NotchShelfPreferredStyle,
         positionMode: NotchShelfPositionMode,
@@ -143,10 +154,14 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnClick: Bool,
         mainDisplayOnly: Bool,
         islandVerticalOffset: Double,
+        islandHorizontalOffset: Double,
+        attachedShellHeight: Double,
+        overlayMenuBarForAttachedNotch: Bool,
         showPlacementDebugOverlay: Bool,
         customX: Double,
         customY: Double
     ) {
+        self.configVersion = configVersion
         self.enabled = enabled
         self.preferredStyle = preferredStyle
         self.positionMode = positionMode
@@ -176,6 +191,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         self.expandOnClick = expandOnClick
         self.mainDisplayOnly = mainDisplayOnly
         self.islandVerticalOffset = islandVerticalOffset
+        self.islandHorizontalOffset = islandHorizontalOffset
+        self.attachedShellHeight = attachedShellHeight
+        self.overlayMenuBarForAttachedNotch = overlayMenuBarForAttachedNotch
         self.showPlacementDebugOverlay = showPlacementDebugOverlay
         self.customX = customX
         self.customY = customY
@@ -185,6 +203,7 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = Self.default
 
+        configVersion = try container.decodeIfPresent(Int.self, forKey: .configVersion) ?? 0
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
         preferredStyle = try container.decodeIfPresent(NotchShelfPreferredStyle.self, forKey: .preferredStyle) ?? defaults.preferredStyle
         positionMode = try container.decodeIfPresent(NotchShelfPositionMode.self, forKey: .positionMode) ?? defaults.positionMode
@@ -214,8 +233,42 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         expandOnClick = try container.decodeIfPresent(Bool.self, forKey: .expandOnClick) ?? defaults.expandOnClick
         mainDisplayOnly = try container.decodeIfPresent(Bool.self, forKey: .mainDisplayOnly) ?? defaults.mainDisplayOnly
         islandVerticalOffset = try container.decodeIfPresent(Double.self, forKey: .islandVerticalOffset) ?? defaults.islandVerticalOffset
+        islandHorizontalOffset = try container.decodeIfPresent(Double.self, forKey: .islandHorizontalOffset) ?? defaults.islandHorizontalOffset
+        attachedShellHeight = try container.decodeIfPresent(Double.self, forKey: .attachedShellHeight) ?? defaults.attachedShellHeight
+        overlayMenuBarForAttachedNotch = try container.decodeIfPresent(Bool.self, forKey: .overlayMenuBarForAttachedNotch) ?? defaults.overlayMenuBarForAttachedNotch
         showPlacementDebugOverlay = try container.decodeIfPresent(Bool.self, forKey: .showPlacementDebugOverlay) ?? defaults.showPlacementDebugOverlay
         customX = try container.decodeIfPresent(Double.self, forKey: .customX) ?? defaults.customX
         customY = try container.decodeIfPresent(Double.self, forKey: .customY) ?? defaults.customY
+    }
+
+    var needsAttachedNotchRepair: Bool {
+        guard preferredStyle == .island else { return false }
+        return configVersion < Self.currentConfigVersion
+            || collapsedWidth > 280
+            || compactWidth > 420
+            || collapsedHeight > 60
+            || compactHeight > 70
+            || abs(islandVerticalOffset) > 40
+            || abs(islandHorizontalOffset) > 80
+            || attachedShellHeight < 20
+            || attachedShellHeight > 80
+    }
+
+    @discardableResult
+    mutating func repairAttachedNotchLayoutIfNeeded() -> Bool {
+        guard needsAttachedNotchRepair else { return false }
+        resetToAttachedNotchDefaults(keepEnabled: true)
+        return true
+    }
+
+    mutating func resetToAttachedNotchDefaults(keepEnabled: Bool = true) {
+        let defaults = Self.default
+        let wasEnabled = enabled
+        self = defaults
+        enabled = keepEnabled ? wasEnabled : defaults.enabled
+        preferredStyle = .island
+        presentationState = .collapsed
+        positionMode = .automaticNotchAware
+        configVersion = Self.currentConfigVersion
     }
 }

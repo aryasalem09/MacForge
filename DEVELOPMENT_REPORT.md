@@ -1,5 +1,32 @@
 # MacForge Development Report
 
+## v0.26.2 Pixel-Perfect Notch Attachment
+
+Date: June 9, 2026
+
+### Summary
+
+This sprint treats the user's screenshot as a failed visual acceptance test. The black Notch Island shell was floating below the physical camera notch, so the work focused on panel geometry, visual attachment, stale layout repair, and manual diagnostics rather than adding new providers or widgets.
+
+### Root Cause
+
+`NotchShelfWindowController` used the collapsed/compact content frame as the full `NSPanel` frame. Those frames were calculated below the inferred camera gap, so the panel's top edge landed near the bottom of the notch/menu-bar band instead of `screen.frame.maxY`. The black capsule could be correctly sized and centered, but it could never visually fuse with the physical notch because no MacForge pixels touched the display top.
+
+### What Changed
+
+- Added `NotchAttachmentGeometry` with a top-flush `attachedShellFrame` plus separate collapsed, compact, and expanded content frames.
+- Reworked Notch Island panel framing so built-in notched displays use the union of the attached shell and active content frame.
+- Kept external and non-notched displays on an honest top-center fallback.
+- Updated collapsed, compact, and expanded views to draw a dark attached shell with square top edge and rounded lower edge.
+- Added overlay-menu-bar setting, horizontal offset, vertical attach offset, shell-height calibration, snap, repair, reset, and geometry-copy controls.
+- Added automatic stale toolbar-layout repair for old v0.26/v0.26.1 values.
+- Kept Dock recovery controls visible in Settings -> Safety.
+- Added `NOTCH_ATTACHMENT_AUDIT.md` and `MANUAL_QA_PIXEL_NOTCH.md`.
+
+### Verification Notes
+
+Build and test results are recorded in the final response for this branch. Apple Music remains implemented through public Automation and still needs on-device manual consent verification before docs should claim it is manually verified.
+
 ## v0.26.1 Notch Runtime Recovery
 
 Date: June 9, 2026

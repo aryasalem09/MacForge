@@ -76,9 +76,17 @@ tccutil reset AppleEvents com.aryasalem.MacForge
 
 Then quit and relaunch MacForge from Xcode while Music is playing.
 
-### Notch Island Is Too Low
+### Notch Island Floating Below The Camera
 
-Use Notch settings -> Placement nudge and Reset Notch Layout. The island uses public screen safe-area and auxiliary top-area geometry; it will not draw interactive controls into pixels hidden by the physical camera cutout.
+Open Settings -> Notch Shelf -> Placement and click Repair Notch Island Layout. This resets stale toolbar-sized values and re-anchors the black attached shell to the display top edge around the physical notch.
+
+Use Copy Notch Geometry Debug Info when reporting placement bugs. It copies the screen frame, visible frame, safe-area insets, auxiliary top areas, shell/content frames, current panel frame, window level, and calibration offsets.
+
+If the shell is close but not visually touching on your exact MacBook, adjust Vertical attach offset, Horizontal offset, and Shell height, then use Snap to Detected Notch or Reset to Attached Defaults.
+
+### Force A Notch Media Card
+
+Use Settings -> Notch Shelf -> Test Providers -> Force Now Playing Test Card to verify the coordinator-to-UI path and visual attachment without depending on Apple Music Automation permission.
 
 ### Old Build Still Running
 

@@ -21,14 +21,13 @@ struct NotchIslandCollapsedView: View {
             }
         }
         .padding(.horizontal, 13)
+        .padding(.top, environment.notchConfig.attachedContentTopPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            Capsule()
-                .fill(.black.opacity(0.96))
-                .overlay(
-                    Capsule()
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-                )
+            NotchIslandShellBackground(
+                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
+                materialStyle: environment.notchConfig.materialStyle
+            )
         }
         .accessibilityLabel("Collapsed Notch Island")
     }
