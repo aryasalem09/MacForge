@@ -10,6 +10,9 @@ struct NotchIslandExpandedView: View {
         let snapshot = liveIslandCoordinator.currentSnapshot
 
         VStack(alignment: .leading, spacing: 12) {
+            if environment.notchConfig.forceAttachedNotchTestMode {
+                forceTestContent
+            } else {
             HStack {
                 Spacer()
                 Button {
@@ -38,6 +41,7 @@ struct NotchIslandExpandedView: View {
             if environment.notchConfig.showRecentResults {
                 recentResults
             }
+            }
         }
         .padding(14)
         .padding(.top, environment.notchConfig.attachedContentTopPadding)
@@ -49,6 +53,33 @@ struct NotchIslandExpandedView: View {
             )
         }
         .accessibilityLabel("Expanded Notch Island")
+    }
+
+    private var forceTestContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Attached Notch Test")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                Spacer()
+                Button {
+                    activityCenter.collapse()
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .frame(width: 24, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.78))
+                .help("Collapse")
+            }
+
+            Text(MacForgeBuildInfo.label)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.white.opacity(0.58))
+            Text("x \(Int(environment.notchConfig.islandHorizontalOffset)), y \(Int(environment.notchConfig.islandVerticalOffset)), shell \(Int(environment.notchConfig.attachedShellHeight))")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.white.opacity(0.58))
+        }
     }
 
     private func liveSnapshotCard(_ snapshot: LiveIslandSnapshot) -> some View {

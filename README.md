@@ -82,7 +82,9 @@ Open Settings -> Notch Shelf -> Placement and click Repair Notch Island Layout. 
 
 Use Copy Notch Geometry Debug Info when reporting placement bugs. It copies the screen frame, visible frame, safe-area insets, auxiliary top areas, shell/content frames, current panel frame, window level, and calibration offsets.
 
-If the shell is close but not visually touching on your exact MacBook, adjust Vertical attach offset, Horizontal offset, and Shell height, then use Snap to Detected Notch or Reset to Attached Defaults.
+If the shell is close but not visually touching on your exact MacBook, enable Calibration Mode and drag the island until the black shell touches the physical notch. Click Save Calibration, then quit and relaunch to confirm the saved offset persists.
+
+For isolated visual testing, enable Force Attached Notch Test Mode. It hides widgets and media so only the attached black shell and simple expanded test panel are shown. Use Hard Reset Notch Island Visual State if old toolbar-like values return.
 
 ### Force A Notch Media Card
 
@@ -91,6 +93,16 @@ Use Settings -> Notch Shelf -> Test Providers -> Force Now Playing Test Card to 
 ### Old Build Still Running
 
 Quit MacForge completely before launching from Xcode. A stale app bundle can keep older Classic Shelf or provider behavior alive even after the branch builds.
+
+Settings -> About and Settings -> Notch Shelf -> Diagnostics show the build label, branch, bundle path, config path, panel frame, window level, and placement offsets. For this branch, confirm the build label is `v0.26.3-real-notch-visual-fix`.
+
+To collect visual evidence after a clean build:
+
+```sh
+Scripts/capture_notch_visual_evidence.sh
+```
+
+Review `VisualEvidence/after_idle.png`, `VisualEvidence/after_expanded.png`, and `VisualEvidence/diagnostics.txt`.
 
 ## Build Instructions
 

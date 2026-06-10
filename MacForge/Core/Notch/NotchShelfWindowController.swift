@@ -21,6 +21,9 @@ final class NotchShelfWindowController {
         if panel.level == .statusBar {
             return "statusBar (\(panel.level.rawValue))"
         }
+        if panel.level == .popUpMenu {
+            return "popUpMenu (\(panel.level.rawValue))"
+        }
         return "\(panel.level.rawValue)"
     }
 
@@ -33,6 +36,7 @@ final class NotchShelfWindowController {
 
         panel?.alphaValue = config.opacity
         panel?.ignoresMouseEvents = config.ignoreMouseEventsWhenInactive
+        panel?.level = windowLevel(for: config)
         panel?.contentView = NSHostingView(rootView: rootView(config: config, environment: environment))
         if hadPanel {
             NSAnimationContext.runAnimationGroup { context in
@@ -89,6 +93,15 @@ final class NotchShelfWindowController {
             screen: screen,
             config: config
         )
+    }
+
+    private func windowLevel(for config: NotchShelfConfig) -> NSWindow.Level {
+        guard config.preferredStyle == .island,
+              config.allowNotchIslandAboveMenuBar else {
+            return .statusBar
+        }
+
+        return .popUpMenu
     }
 
     private func classicShelfFrame(for config: NotchShelfConfig) -> CGRect {

@@ -5,6 +5,7 @@
 - Base branch: `v0.26-notchnook-parity`
 - Recovery branch: `v0.26.1-notch-runtime-recovery`
 - Attachment branch: `v0.26.2-pixel-perfect-notch-attachment`
+- Real visual branch: `v0.26.3-real-notch-visual-fix`
 
 ## Apple Music Finding
 
@@ -32,7 +33,7 @@ screen.maxY - safeAreaInsets.top - 6
 
 On notched screens this can sit visibly below the camera notch. v0.26.1 improved the low placement but still used the lower content frame as the whole `NSPanel` frame, so a user screenshot showed an obvious detached gap.
 
-v0.26.2 fixes the actual attachment bug by making the panel frame include a top-flush black shell whose top edge is `screen.frame.maxY`. Interactive content remains below the camera gap, while the visual shell touches the physical notch/menu-bar band. Stale toolbar-style configs are repaired automatically or through Repair Notch Island Layout.
+v0.26.2 improved the model by making the panel frame include a top-flush black shell whose top edge is `screen.frame.maxY`, but the user's next screenshot still showed a detached island. v0.26.3 therefore moves from geometry-only repair to real-window repair: the actual `NSPanel` top anchor is modeled explicitly, vertical calibration moves that anchor, force test mode removes widgets/providers from the visual check, and hover expansion uses a delayed state machine instead of immediate enter/exit toggles.
 
 ## Dock Finding
 
@@ -44,4 +45,6 @@ Example presets such as Focus Mode and Presentation can enable Dock autohide whe
 - Live Island presentation promotion was event-driven by snapshot changes only, so stale activity collapse could hide an active media snapshot.
 - Notch placement was conservative but too low for the intended visual effect.
 - The panel frame did not include a top-attached visual shell, so the black shape could not visually merge with the real notch.
+- Automatic notch geometry was still treated as authoritative after it failed on the user's actual display.
+- Raw hover enter/exit handling could resize the panel out from under the pointer and oscillate.
 - Dock recovery existed as a reset action but not as an obvious user-facing recovery flow.

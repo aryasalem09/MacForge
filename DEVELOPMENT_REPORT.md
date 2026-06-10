@@ -1,5 +1,35 @@
 # MacForge Development Report
 
+## v0.26.3 Real Notch Visual Fix
+
+Date: June 9, 2026
+
+### Summary
+
+The user reported that v0.26.2 still failed on the real built-in display: the black Notch Island shape was detached from the physical camera notch, and hover expansion flickered. This sprint treats the screenshot as the acceptance test and adds evidence capture, build identity diagnostics, direct calibration, and a stable hover state machine.
+
+### Why v0.26.2 Was Not Enough
+
+v0.26.2 introduced a top-flush shell in geometry tests, but the real app still depended on automatic screen geometry and content-driven panel placement. If the public `NSScreen` values or persisted layout were wrong on the user's MacBook, there was no way to drag the actual `NSPanel` into alignment. Hover also reacted immediately to raw enter/exit events, so expansion could move the hit area out from under the pointer and trigger an expand/collapse loop.
+
+### What Changed
+
+- Added `NotchPanelLayout`, which separates the actual top-anchored `NSPanel` frame from panel-local shell, compact, and expanded content frames.
+- Made vertical calibration move the panel top anchor and horizontal calibration move the panel center.
+- Kept the panel top anchor stable across collapsed, compact, and expanded states so expansion grows downward from the notch.
+- Added Calibration Mode with direct drag-to-align behavior, Save Calibration, Reset Calibration, Snap to Detected Notch, and Hard Reset Notch Island Visual State.
+- Added Force Attached Notch Test Mode so placement can be tested without live media, widgets, or provider state.
+- Added build diagnostics showing `v0.26.3-real-notch-visual-fix`, bundle path, config path, panel frame, window level, offsets, and hover state.
+- Added a debounced hover state machine with delayed expand, delayed collapse, click-pinned expansion, and calibration-mode suppression.
+- Added `Scripts/capture_notch_visual_evidence.sh` to launch the Debug app and save before/idle/expanded screenshots under `VisualEvidence/`.
+- Kept Dock recovery, panic reset, and Classic Shelf behavior intact.
+
+### Verification Notes
+
+Synthetic tests now cover panel top anchoring, manual calibration, force test mode, hover hysteresis, config migration, and Classic Shelf isolation. The final clean build passed and the final test run passed 87 tests.
+
+`Scripts/capture_notch_visual_evidence.sh` generated local screenshots under `VisualEvidence/`, but the captures are obstructed by a macOS Screen Recording permission dialog for Codex. The shell is visibly top-anchored in the capture, but real visual acceptance still requires a clean screenshot on the user's actual display. If that screenshot shows a visible gap, Calibration Mode is the intended public-API correction path.
+
 ## v0.26.2 Pixel-Perfect Notch Attachment
 
 Date: June 9, 2026

@@ -81,6 +81,16 @@ struct NotchAttachmentGeometry: Hashable, Codable {
     var fallbackReason: String?
 }
 
+struct NotchPanelLayout: Hashable, Codable {
+    var screenID: String
+    var presentationState: NotchIslandPresentationState
+    var panelFrame: CGRectCodable
+    var shellFrameInPanelCoordinates: CGRectCodable
+    var contentFrameInPanelCoordinates: CGRectCodable
+    var expandedFrameInPanelCoordinates: CGRectCodable
+    var attachmentGeometry: NotchAttachmentGeometry
+}
+
 struct NotchGeometryService {
     private let margin: CGFloat = 16
     private let defaultCameraGapWidth: CGFloat = 210
@@ -136,7 +146,7 @@ struct NotchGeometryService {
         let hasAuxiliaryGap = inferredAuxiliaryGap(metrics: metrics) != nil
         let hasLikelyNotch = metrics.hasLikelyNotch || hasAuxiliaryGap || topInset > 0
         let cameraGapFrame = cameraGap(metrics: metrics)
-        let horizontalOffset = CGFloat(config.islandHorizontalOffset.clamped(to: -80...80))
+        let horizontalOffset = CGFloat(config.islandHorizontalOffset.clamped(to: -160...160))
         let anchorCenterX = cameraGapFrame.midX + horizontalOffset
 
         let configuredCollapsedWidth = min(max(CGFloat(config.collapsedWidth), 160), 280)
@@ -170,12 +180,13 @@ struct NotchGeometryService {
             )
         }
 
-        let verticalExtension = CGFloat(config.islandVerticalOffset.clamped(to: -40...40))
-        let shellHeight = (CGFloat(config.attachedShellHeight) + verticalExtension).clamped(to: 20...80)
+        let verticalOffset = CGFloat(config.islandVerticalOffset.clamped(to: -120...120))
+        let topAnchorY = screenFrame.maxY + verticalOffset
+        let shellHeight = CGFloat(config.attachedShellHeight).clamped(to: 20...110)
         let shellWidth = clampedWidth(max(collapsedWidth, min(cameraGapFrame.width + 22, 280)), screenFrame: screenFrame)
         let shellFrame = topFlushedFrame(
             centerX: anchorCenterX,
-            topY: screenFrame.maxY,
+            topY: topAnchorY,
             width: shellWidth,
             height: shellHeight,
             screenFrame: screenFrame
@@ -184,20 +195,20 @@ struct NotchGeometryService {
         let menuBandHeight = max(cameraGapFrame.height, 1)
         let menuBarBandFrame = CGRect(
             x: screenFrame.minX,
-            y: screenFrame.maxY - menuBandHeight,
+            y: topAnchorY - menuBandHeight,
             width: screenFrame.width,
             height: menuBandHeight
         )
-        let safeInteractiveTopY = cameraGapFrame.minY
+        let safeInteractiveTopY = cameraGapFrame.minY + verticalOffset
 
-        let collapsedContentFrame = frameAllowingTopFlush(
+        let collapsedContentFrame = topFlushedFrame(
             centerX: anchorCenterX,
             topY: safeInteractiveTopY,
             width: collapsedWidth,
             height: collapsedHeight,
             screenFrame: screenFrame
         )
-        let compactContentFrame = frameAllowingTopFlush(
+        let compactContentFrame = topFlushedFrame(
             centerX: anchorCenterX,
             topY: safeInteractiveTopY,
             width: compactWidth,
@@ -205,7 +216,7 @@ struct NotchGeometryService {
             screenFrame: screenFrame
         )
         let expandedHeight = min(CGFloat(config.expandedHeight), max(180, safeInteractiveTopY - screenFrame.minY - margin))
-        let expandedContentFrame = frameAllowingTopFlush(
+        let expandedContentFrame = topFlushedFrame(
             centerX: anchorCenterX,
             topY: safeInteractiveTopY,
             width: expandedWidth,
@@ -228,31 +239,54 @@ struct NotchGeometryService {
     }
 
     func panelFrame(for state: NotchIslandPresentationState, metrics: NotchScreenMetrics, config: NotchShelfConfig = .default) -> CGRect {
-        let geometry = attachmentGeometry(metrics: metrics, config: config)
-        return panelFrame(for: state, geometry: geometry, config: config)
+        panelLayout(for: state, metrics: metrics, config: config).panelFrame.rect
     }
 
     func panelFrame(for state: NotchIslandPresentationState, screen: NSScreen, config: NotchShelfConfig) -> CGRect {
-        let geometry = attachmentGeometry(for: screen, config: config)
-        return panelFrame(for: state, geometry: geometry, config: config)
+        panelLayout(for: state, screen: screen, config: config).panelFrame.rect
     }
 
     func panelFrame(for state: NotchIslandPresentationState, geometry: NotchAttachmentGeometry, config: NotchShelfConfig = .default) -> CGRect {
+        panelLayout(for: state, geometry: geometry, config: config).panelFrame.rect
+    }
+
+    func panelLayout(for state: NotchIslandPresentationState, screen: NSScreen, config: NotchShelfConfig) -> NotchPanelLayout {
+        let geometry = attachmentGeometry(for: screen, config: config)
+        return panelLayout(for: state, geometry: geometry, config: config)
+    }
+
+    func panelLayout(for state: NotchIslandPresentationState, metrics: NotchScreenMetrics, config: NotchShelfConfig = .default) -> NotchPanelLayout {
+        let geometry = attachmentGeometry(metrics: metrics, config: config)
+        return panelLayout(for: state, geometry: geometry, config: config)
+    }
+
+    func panelLayout(for state: NotchIslandPresentationState, geometry: NotchAttachmentGeometry, config: NotchShelfConfig = .default) -> NotchPanelLayout {
         let contentFrame: CGRect
         switch state {
         case .hidden, .collapsed:
-            contentFrame = geometry.collapsedContentFrame.rect
+            contentFrame = config.forceAttachedNotchTestMode ? geometry.attachedShellFrame.rect : geometry.collapsedContentFrame.rect
         case .compact:
             contentFrame = geometry.compactContentFrame.rect
         case .expanded:
             contentFrame = geometry.expandedContentFrame.rect
         }
 
-        guard geometry.hasLikelyNotch, config.overlayMenuBarForAttachedNotch else {
-            return contentFrame
+        let panelFrame: CGRect
+        if geometry.hasLikelyNotch, config.overlayMenuBarForAttachedNotch {
+            panelFrame = geometry.attachedShellFrame.rect.union(contentFrame).integral
+        } else {
+            panelFrame = contentFrame
         }
 
-        return geometry.attachedShellFrame.rect.union(contentFrame).integral
+        return NotchPanelLayout(
+            screenID: geometry.screenID,
+            presentationState: state,
+            panelFrame: CGRectCodable(panelFrame),
+            shellFrameInPanelCoordinates: CGRectCodable(panelLocalRect(geometry.attachedShellFrame.rect, in: panelFrame)),
+            contentFrameInPanelCoordinates: CGRectCodable(panelLocalRect(contentFrame, in: panelFrame)),
+            expandedFrameInPanelCoordinates: CGRectCodable(panelLocalRect(geometry.expandedContentFrame.rect, in: panelFrame)),
+            attachmentGeometry: geometry
+        )
     }
 
     private func cameraGap(metrics: NotchScreenMetrics) -> CGRect {
@@ -320,6 +354,15 @@ struct NotchGeometryService {
         let x = min(max(centerX - width / 2, screenFrame.minX + margin), screenFrame.maxX - margin - width)
         let y = min(max(topY - height, screenFrame.minY + margin), screenFrame.maxY - height)
         return CGRect(x: x, y: y, width: width, height: height).integral
+    }
+
+    private func panelLocalRect(_ rect: CGRect, in panelFrame: CGRect) -> CGRect {
+        CGRect(
+            x: rect.minX - panelFrame.minX,
+            y: rect.minY - panelFrame.minY,
+            width: rect.width,
+            height: rect.height
+        ).integral
     }
 
     private func clamp(_ rect: CGRect, to screenFrame: CGRect) -> CGRect {

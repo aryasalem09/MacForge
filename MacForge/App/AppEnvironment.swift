@@ -21,6 +21,16 @@ enum FileRuleOperationResult<T> {
     case failure(CommandResult)
 }
 
+struct MacForgeBuildInfo: Hashable {
+    static let branch = "v0.26.3-real-notch-visual-fix"
+    static let label = "v0.26.3-real-notch-visual-fix"
+    static let buildDate = "2026-06-09"
+
+    var bundlePath: String {
+        Bundle.main.bundleURL.path
+    }
+}
+
 extension JSONEncoder {
     static var macForge: JSONEncoder {
         let encoder = JSONEncoder()
@@ -45,7 +55,9 @@ final class AppEnvironment: ObservableObject {
     }
     @Published var liveIslandSettings: LiveIslandSettings {
         didSet {
-            liveIslandCoordinator.updateSettings(liveIslandSettings)
+            if !Self.isRunningUnitTests, !notchConfig.forceAttachedNotchTestMode {
+                liveIslandCoordinator.updateSettings(liveIslandSettings)
+            }
             persist()
         }
     }
@@ -88,6 +100,8 @@ final class AppEnvironment: ObservableObject {
         }
     }
     @Published var lastPresetTransaction: PresetTransaction?
+    @Published private(set) var notchHoverState: NotchHoverVisualState = .idle
+    @Published private(set) var notchHoverDiagnostics: [String] = []
 
     let permissionCenter = PermissionCenter()
     let fileAccessPermissionService = FileAccessPermissionService()
@@ -108,6 +122,20 @@ final class AppEnvironment: ObservableObject {
     private let configurationURL: URL
     private var isLoading = true
     private var cancellables: Set<AnyCancellable> = []
+    private var hoverStateMachine = NotchHoverStateMachine()
+    private var hoverExpandTask: Task<Void, Never>?
+    private var hoverCollapseTask: Task<Void, Never>?
+
+    var buildInfo: MacForgeBuildInfo { MacForgeBuildInfo() }
+    var configurationPath: String { configurationURL.path }
+
+    private static var isRunningUnitTests: Bool {
+        let processInfo = ProcessInfo.processInfo
+        let environment = processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || processInfo.arguments.contains { $0.localizedCaseInsensitiveContains(".xctest") }
+    }
 
     init() {
         let supportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -117,6 +145,17 @@ final class AppEnvironment: ObservableObject {
 
         let loaded = Self.loadConfiguration(from: configurationURL)
         var loadedNotchConfig = loaded?.notchConfig ?? .default
+        let launchArguments = ProcessInfo.processInfo.arguments
+        let forceVisualTest = launchArguments.contains("--macforge-force-notch-test")
+        let forceExpandedVisualTest = launchArguments.contains("--macforge-force-notch-expanded")
+        if forceVisualTest {
+            loadedNotchConfig.hardResetVisualState(keepEnabled: true)
+            loadedNotchConfig.enabled = true
+            loadedNotchConfig.preferredStyle = .island
+            loadedNotchConfig.forceAttachedNotchTestMode = true
+            loadedNotchConfig.showPlacementDebugOverlay = true
+            loadedNotchConfig.presentationState = forceExpandedVisualTest ? .expanded : .collapsed
+        }
         let repairedAttachedNotchLayout = loadedNotchConfig.repairAttachedNotchLayoutIfNeeded()
         notchConfig = loadedNotchConfig
         liveIslandSettings = loaded?.liveIslandSettings ?? .default
@@ -138,15 +177,20 @@ final class AppEnvironment: ObservableObject {
         isLoading = false
         notchIslandActivityCenter.presentationState = notchConfig.enabled ? notchConfig.presentationState : .hidden
         liveIslandCoordinator.configureDefaultProviders(activityCenter: notchIslandActivityCenter)
-        liveIslandCoordinator.updateSettings(liveIslandSettings)
-        liveIslandCoordinator.start()
+        if !Self.isRunningUnitTests, !notchConfig.forceAttachedNotchTestMode {
+            liveIslandCoordinator.updateSettings(liveIslandSettings)
+            liveIslandCoordinator.start()
+        }
         refreshPermissions()
         refreshWallpaperStates()
         startNotchIslandObservation()
         startCommandBusObservation()
         updateShelfAndPersist()
         if repairedAttachedNotchLayout {
-            append(.success("Notch Island", "Reset old Notch Island layout to attached defaults."))
+            append(.success("Notch Island", "Notch Island layout repaired for v0.26.3."))
+        }
+        if forceVisualTest {
+            append(.success("Visual QA", "Running \(MacForgeBuildInfo.label) with forced attached notch test mode."))
         }
     }
 
@@ -181,10 +225,12 @@ final class AppEnvironment: ObservableObject {
     }
 
     func expandNotchIsland() {
+        guard !notchConfig.calibrationModeEnabled else { return }
         notchIslandActivityCenter.expand()
     }
 
     func collapseNotchIsland() {
+        guard !notchConfig.calibrationModeEnabled else { return }
         notchIslandActivityCenter.collapse()
     }
 
@@ -195,20 +241,75 @@ final class AppEnvironment: ObservableObject {
     }
 
     func repairNotchIslandLayout() {
-        notchConfig.resetToAttachedNotchDefaults(keepEnabled: true)
+        notchConfig.hardResetVisualState(keepEnabled: true)
         liveIslandCoordinator.clearTransientState()
         notchIslandActivityCenter.clearActivity()
+        resetHoverState()
         notchIslandActivityCenter.collapse()
         append(.success("Notch Island", "Repaired stale toolbar-style layout and re-anchored the island to the notch."))
+    }
+
+    func hardResetNotchIslandVisualState() {
+        notchConfig.hardResetVisualState(keepEnabled: true)
+        liveIslandCoordinator.clearTransientState()
+        notchIslandActivityCenter.clearActivity()
+        resetHoverState()
+        notchIslandActivityCenter.collapse()
+        append(.success("Notch Island", "Hard reset Notch Island visual state without changing folders, presets, files, wallpapers, or Dock data."))
     }
 
     func snapNotchIslandToDetectedNotch() {
         notchConfig.islandHorizontalOffset = 0
         notchConfig.islandVerticalOffset = 0
         notchConfig.overlayMenuBarForAttachedNotch = true
+        notchConfig.allowNotchIslandAboveMenuBar = true
         notchConfig.configVersion = NotchShelfConfig.currentConfigVersion
         notchIslandActivityCenter.collapse()
         append(.success("Notch Island", "Snapped placement to the detected notch geometry."))
+    }
+
+    func saveNotchCalibration() {
+        notchConfig.calibrationModeEnabled = false
+        resetHoverState()
+        append(.success("Notch Calibration", "Saved x \(Int(notchConfig.islandHorizontalOffset)), y \(Int(notchConfig.islandVerticalOffset))."))
+    }
+
+    func resetNotchCalibration() {
+        notchConfig.islandHorizontalOffset = 0
+        notchConfig.islandVerticalOffset = 0
+        notchConfig.calibrationModeEnabled = false
+        resetHoverState()
+        append(.success("Notch Calibration", "Reset manual calibration offsets."))
+    }
+
+    func beginNotchCalibrationDrag() {
+        applyHoverActions(hoverStateMachine.beginCalibrationDrag(), event: "calibration drag began")
+    }
+
+    func updateNotchCalibrationDrag(startX: Double, startY: Double, translation: CGSize) {
+        guard notchConfig.calibrationModeEnabled else { return }
+        notchConfig.islandHorizontalOffset = (startX + Double(translation.width)).clamped(to: -160...160)
+        notchConfig.islandVerticalOffset = (startY - Double(translation.height)).clamped(to: -120...120)
+    }
+
+    func endNotchCalibrationDrag() {
+        applyHoverActions(hoverStateMachine.endCalibrationDrag(), event: "calibration drag ended")
+        append(.success("Notch Calibration", "Calibration moved to x \(Int(notchConfig.islandHorizontalOffset)), y \(Int(notchConfig.islandVerticalOffset)). Click Save Calibration to keep this placement."))
+    }
+
+    func setForceAttachedNotchTestMode(_ enabled: Bool) {
+        notchConfig.forceAttachedNotchTestMode = enabled
+        if enabled {
+            liveIslandCoordinator.stop()
+            liveIslandCoordinator.clearTransientState()
+        } else if !Self.isRunningUnitTests {
+            liveIslandCoordinator.updateSettings(liveIslandSettings)
+            liveIslandCoordinator.start()
+        }
+        notchIslandActivityCenter.clearActivity()
+        resetHoverState()
+        notchIslandActivityCenter.collapse()
+        append(.success("Visual QA", enabled ? "Force Attached Notch Test Mode enabled." : "Force Attached Notch Test Mode disabled."))
     }
 
     func copyNotchGeometryDebugInfo() {
@@ -220,11 +321,17 @@ final class AppEnvironment: ObservableObject {
         let service = NotchGeometryService()
         let metrics = service.metrics(for: screen)
         let geometry = service.attachmentGeometry(metrics: metrics, config: notchConfig)
-        let collapsedPanelFrame = service.panelFrame(for: .collapsed, geometry: geometry, config: notchConfig)
-        let compactPanelFrame = service.panelFrame(for: .compact, geometry: geometry, config: notchConfig)
-        let expandedPanelFrame = service.panelFrame(for: .expanded, geometry: geometry, config: notchConfig)
+        let collapsedLayout = service.panelLayout(for: .collapsed, geometry: geometry, config: notchConfig)
+        let compactLayout = service.panelLayout(for: .compact, geometry: geometry, config: notchConfig)
+        let expandedLayout = service.panelLayout(for: .expanded, geometry: geometry, config: notchConfig)
         let panelFrame = notchShelfWindowController.currentPanelFrame
+        let mouseLocation = NSEvent.mouseLocation
         let lines = [
+            "buildLabel: \(MacForgeBuildInfo.label)",
+            "gitBranch: \(MacForgeBuildInfo.branch)",
+            "buildDate: \(MacForgeBuildInfo.buildDate)",
+            "bundlePath: \(buildInfo.bundlePath)",
+            "configPath: \(configurationPath)",
             "screenID: \(metrics.screenID)",
             "NSScreen.main.frame: \(format(screen.frame))",
             "NSScreen.main.visibleFrame: \(format(screen.visibleFrame))",
@@ -237,15 +344,23 @@ final class AppEnvironment: ObservableObject {
             "collapsedContentFrame: \(format(geometry.collapsedContentFrame.rect))",
             "compactContentFrame: \(format(geometry.compactContentFrame.rect))",
             "expandedContentFrame: \(format(geometry.expandedContentFrame.rect))",
-            "collapsedPanelFrame: \(format(collapsedPanelFrame))",
-            "compactPanelFrame: \(format(compactPanelFrame))",
-            "expandedPanelFrame: \(format(expandedPanelFrame))",
+            "collapsedPanelFrame: \(format(collapsedLayout.panelFrame.rect))",
+            "compactPanelFrame: \(format(compactLayout.panelFrame.rect))",
+            "expandedPanelFrame: \(format(expandedLayout.panelFrame.rect))",
+            "collapsedShellInPanel: \(format(collapsedLayout.shellFrameInPanelCoordinates.rect))",
+            "collapsedContentInPanel: \(format(collapsedLayout.contentFrameInPanelCoordinates.rect))",
             "currentNSPanelFrame: \(panelFrame.map(format) ?? "none")",
             "currentNSWindowLevel: \(notchShelfWindowController.currentWindowLevelDescription)",
+            "mouseLocation: \(formatPoint(mouseLocation))",
             "placementNudgeY: \(notchConfig.islandVerticalOffset)",
             "placementNudgeX: \(notchConfig.islandHorizontalOffset)",
             "attachedShellHeight: \(notchConfig.attachedShellHeight)",
             "overlayMenuBarForAttachedNotch: \(notchConfig.overlayMenuBarForAttachedNotch)",
+            "allowNotchIslandAboveMenuBar: \(notchConfig.allowNotchIslandAboveMenuBar)",
+            "calibrationModeEnabled: \(notchConfig.calibrationModeEnabled)",
+            "forceAttachedNotchTestMode: \(notchConfig.forceAttachedNotchTestMode)",
+            "hoverState: \(notchHoverState.rawValue)",
+            "hoverDiagnostics: \(notchHoverDiagnostics.joined(separator: " | "))",
             "classicShelfEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .classicShelf)",
             "notchIslandModeEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .island)",
             "fallbackReason: \(geometry.fallbackReason ?? "none")"
@@ -264,6 +379,7 @@ final class AppEnvironment: ObservableObject {
     func disableNotchIslandFromSafety() {
         notchConfig.enabled = false
         notchConfig.preferredStyle = .island
+        resetHoverState()
         notchIslandActivityCenter.hide()
         append(.success("Notch Island", "Disabled Notch Island."))
     }
@@ -295,6 +411,7 @@ final class AppEnvironment: ObservableObject {
         notchConfig.preferredStyle = .island
         resetNotchConfigToSafeDefaults()
         liveIslandCoordinator.clearTransientState()
+        resetHoverState()
         notchIslandActivityCenter.hide()
         liveIslandSettings = .default
         dockSettings = .default
@@ -738,6 +855,93 @@ final class AppEnvironment: ObservableObject {
         append(.success("Automation Settings", "Opened Privacy & Security Automation settings."))
     }
 
+    func handleNotchHoverChanged(_ isHovering: Bool) {
+        guard notchConfig.enabled,
+              notchConfig.preferredStyle == .island,
+              notchConfig.expandOnHover else {
+            return
+        }
+
+        let actions = isHovering
+            ? hoverStateMachine.pointerEntered(calibrationMode: notchConfig.calibrationModeEnabled)
+            : hoverStateMachine.pointerExited(calibrationMode: notchConfig.calibrationModeEnabled)
+        applyHoverActions(actions, event: isHovering ? "hover entered" : "hover exited")
+    }
+
+    func toggleNotchIslandExpansionByClick() {
+        guard notchConfig.expandOnClick else { return }
+        let actions = hoverStateMachine.clickToggle(
+            isExpanded: notchIslandActivityCenter.presentationState == .expanded,
+            calibrationMode: notchConfig.calibrationModeEnabled
+        )
+        applyHoverActions(actions, event: "click toggle")
+    }
+
+    private func handleHoverExpandDelayElapsed() {
+        let actions = hoverStateMachine.hoverDelayElapsed(calibrationMode: notchConfig.calibrationModeEnabled)
+        applyHoverActions(actions, event: "hover expand delay elapsed")
+    }
+
+    private func handleHoverCollapseDelayElapsed() {
+        let actions = hoverStateMachine.collapseDelayElapsed(calibrationMode: notchConfig.calibrationModeEnabled)
+        applyHoverActions(actions, event: "hover collapse delay elapsed")
+    }
+
+    private func applyHoverActions(_ actions: [NotchHoverAction], event: String) {
+        notchHoverState = hoverStateMachine.state
+        recordHoverDiagnostic(event)
+
+        for action in actions {
+            switch action {
+            case .scheduleExpand:
+                hoverExpandTask?.cancel()
+                hoverExpandTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 160_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        self?.handleHoverExpandDelayElapsed()
+                    }
+                }
+            case .scheduleCollapse:
+                hoverCollapseTask?.cancel()
+                hoverCollapseTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        self?.handleHoverCollapseDelayElapsed()
+                    }
+                }
+            case .cancelExpand:
+                hoverExpandTask?.cancel()
+                hoverExpandTask = nil
+            case .cancelCollapse:
+                hoverCollapseTask?.cancel()
+                hoverCollapseTask = nil
+            case .expand:
+                guard notchIslandActivityCenter.presentationState != .expanded else { continue }
+                notchIslandActivityCenter.expand()
+            case .collapse:
+                if liveIslandCoordinator.currentSnapshot.kind != .idle {
+                    notchIslandActivityCenter.presentationState = .compact
+                } else {
+                    notchIslandActivityCenter.collapse()
+                }
+            }
+        }
+
+        notchHoverState = hoverStateMachine.state
+    }
+
+    private func resetHoverState() {
+        applyHoverActions(hoverStateMachine.reset(), event: "hover reset")
+    }
+
+    private func recordHoverDiagnostic(_ event: String) {
+        let line = "\(Date().formatted(date: .omitted, time: .standard)) \(event) -> \(hoverStateMachine.state.rawValue)"
+        notchHoverDiagnostics.insert(line, at: 0)
+        notchHoverDiagnostics = Array(notchHoverDiagnostics.prefix(8))
+    }
+
     func append(_ result: CommandResult) {
         record(result)
         if notchConfig.enabled, notchConfig.preferredStyle == .island {
@@ -880,6 +1084,10 @@ final class AppEnvironment: ObservableObject {
               notchConfig.preferredStyle == .island else {
             return
         }
+        guard !notchConfig.forceAttachedNotchTestMode else {
+            updateNotchShelf()
+            return
+        }
 
         let snapshot = snapshot ?? liveIslandCoordinator.currentSnapshot
         let shouldUseCompact = snapshot.kind != .idle && snapshot.priority >= .backgroundMedia
@@ -899,12 +1107,16 @@ final class AppEnvironment: ObservableObject {
     }
 
     private func resetNotchConfigToSafeDefaults() {
-        notchConfig.resetToAttachedNotchDefaults(keepEnabled: true)
+        notchConfig.hardResetVisualState(keepEnabled: true)
         notchConfig.ignoreMouseEventsWhenInactive = false
     }
 
     private func format(_ rect: CGRect) -> String {
         "x \(Int(rect.origin.x)), y \(Int(rect.origin.y)), w \(Int(rect.width)), h \(Int(rect.height))"
+    }
+
+    private func formatPoint(_ point: CGPoint) -> String {
+        "x \(Int(point.x)), y \(Int(point.y))"
     }
 
     private func currentConfigurationData() throws -> Data {
@@ -970,5 +1182,11 @@ enum FolderTemplate: String, CaseIterable, Identifiable {
         case .coding:
             ["Sources", "Tests", "Docs", "Design"]
         }
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

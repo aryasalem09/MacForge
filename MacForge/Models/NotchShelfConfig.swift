@@ -45,7 +45,7 @@ enum NotchIslandMaterialStyle: String, CaseIterable, Codable, Identifiable, Hash
 }
 
 struct NotchShelfConfig: Codable, Equatable, Hashable {
-    static let currentConfigVersion = 2
+    static let currentConfigVersion = 263
 
     var configVersion: Int
     var enabled: Bool
@@ -80,6 +80,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
     var islandHorizontalOffset: Double
     var attachedShellHeight: Double
     var overlayMenuBarForAttachedNotch: Bool
+    var allowNotchIslandAboveMenuBar: Bool
+    var calibrationModeEnabled: Bool
+    var forceAttachedNotchTestMode: Bool
     var showPlacementDebugOverlay: Bool
     var customX: Double
     var customY: Double
@@ -118,6 +121,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         islandHorizontalOffset: 0,
         attachedShellHeight: 76,
         overlayMenuBarForAttachedNotch: true,
+        allowNotchIslandAboveMenuBar: true,
+        calibrationModeEnabled: false,
+        forceAttachedNotchTestMode: false,
         showPlacementDebugOverlay: false,
         customX: 0,
         customY: 0
@@ -157,6 +163,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         islandHorizontalOffset: Double,
         attachedShellHeight: Double,
         overlayMenuBarForAttachedNotch: Bool,
+        allowNotchIslandAboveMenuBar: Bool,
+        calibrationModeEnabled: Bool,
+        forceAttachedNotchTestMode: Bool,
         showPlacementDebugOverlay: Bool,
         customX: Double,
         customY: Double
@@ -194,6 +203,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         self.islandHorizontalOffset = islandHorizontalOffset
         self.attachedShellHeight = attachedShellHeight
         self.overlayMenuBarForAttachedNotch = overlayMenuBarForAttachedNotch
+        self.allowNotchIslandAboveMenuBar = allowNotchIslandAboveMenuBar
+        self.calibrationModeEnabled = calibrationModeEnabled
+        self.forceAttachedNotchTestMode = forceAttachedNotchTestMode
         self.showPlacementDebugOverlay = showPlacementDebugOverlay
         self.customX = customX
         self.customY = customY
@@ -236,6 +248,9 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         islandHorizontalOffset = try container.decodeIfPresent(Double.self, forKey: .islandHorizontalOffset) ?? defaults.islandHorizontalOffset
         attachedShellHeight = try container.decodeIfPresent(Double.self, forKey: .attachedShellHeight) ?? defaults.attachedShellHeight
         overlayMenuBarForAttachedNotch = try container.decodeIfPresent(Bool.self, forKey: .overlayMenuBarForAttachedNotch) ?? defaults.overlayMenuBarForAttachedNotch
+        allowNotchIslandAboveMenuBar = try container.decodeIfPresent(Bool.self, forKey: .allowNotchIslandAboveMenuBar) ?? defaults.allowNotchIslandAboveMenuBar
+        calibrationModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .calibrationModeEnabled) ?? defaults.calibrationModeEnabled
+        forceAttachedNotchTestMode = try container.decodeIfPresent(Bool.self, forKey: .forceAttachedNotchTestMode) ?? defaults.forceAttachedNotchTestMode
         showPlacementDebugOverlay = try container.decodeIfPresent(Bool.self, forKey: .showPlacementDebugOverlay) ?? defaults.showPlacementDebugOverlay
         customX = try container.decodeIfPresent(Double.self, forKey: .customX) ?? defaults.customX
         customY = try container.decodeIfPresent(Double.self, forKey: .customY) ?? defaults.customY
@@ -248,10 +263,10 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
             || compactWidth > 420
             || collapsedHeight > 60
             || compactHeight > 70
-            || abs(islandVerticalOffset) > 40
-            || abs(islandHorizontalOffset) > 80
+            || abs(islandVerticalOffset) > 120
+            || abs(islandHorizontalOffset) > 160
             || attachedShellHeight < 20
-            || attachedShellHeight > 80
+            || attachedShellHeight > 110
     }
 
     @discardableResult
@@ -270,5 +285,13 @@ struct NotchShelfConfig: Codable, Equatable, Hashable {
         presentationState = .collapsed
         positionMode = .automaticNotchAware
         configVersion = Self.currentConfigVersion
+    }
+
+    mutating func hardResetVisualState(keepEnabled: Bool = true) {
+        resetToAttachedNotchDefaults(keepEnabled: keepEnabled)
+        calibrationModeEnabled = false
+        forceAttachedNotchTestMode = false
+        showPlacementDebugOverlay = false
+        ignoreMouseEventsWhenInactive = false
     }
 }

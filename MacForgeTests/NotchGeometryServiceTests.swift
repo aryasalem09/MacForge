@@ -118,9 +118,43 @@ final class NotchGeometryServiceTests: XCTestCase {
 
         let geometry = NotchGeometryService().attachmentGeometry(metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
 
-        XCTAssertEqual(geometry.attachedShellFrame.rect.maxY, 982, accuracy: 0.5)
-        XCTAssertEqual(geometry.attachedShellFrame.rect.height, 72, accuracy: 0.5)
+        XCTAssertEqual(geometry.attachedShellFrame.rect.maxY, 994, accuracy: 0.5)
+        XCTAssertEqual(geometry.attachedShellFrame.rect.height, 60, accuracy: 0.5)
         XCTAssertEqual(geometry.attachedShellFrame.rect.midX, geometry.cameraGapFrame.rect.midX + 32, accuracy: 0.5)
+    }
+
+    func testPanelTopAnchorStaysFixedAcrossStates() {
+        let service = NotchGeometryService()
+        let metrics = notchedMetricsWithAuxiliaryAreas()
+
+        let collapsed = service.panelLayout(for: .collapsed, metrics: metrics)
+        let compact = service.panelLayout(for: .compact, metrics: metrics)
+        let expanded = service.panelLayout(for: .expanded, metrics: metrics)
+
+        XCTAssertEqual(collapsed.panelFrame.rect.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
+        XCTAssertEqual(compact.panelFrame.rect.maxY, collapsed.panelFrame.rect.maxY, accuracy: 0.5)
+        XCTAssertEqual(expanded.panelFrame.rect.maxY, collapsed.panelFrame.rect.maxY, accuracy: 0.5)
+        XCTAssertGreaterThan(expanded.panelFrame.rect.height, compact.panelFrame.rect.height)
+    }
+
+    func testManualCalibrationOffsetAffectsActualPanelFrame() {
+        var config = NotchShelfConfig.default
+        config.islandHorizontalOffset = 48
+        config.islandVerticalOffset = -20
+        let metrics = notchedMetricsWithAuxiliaryAreas()
+
+        let layout = NotchGeometryService().panelLayout(for: .collapsed, metrics: metrics, config: config)
+
+        XCTAssertEqual(layout.panelFrame.rect.maxY, metrics.screenFrame.rect.maxY - 20, accuracy: 0.5)
+        XCTAssertEqual(layout.panelFrame.rect.midX, metrics.screenFrame.rect.midX + 48, accuracy: 0.5)
+    }
+
+    func testForceTestModeUsesAttachedOnlyCollapsedLayout() {
+        var config = NotchShelfConfig.default
+        config.forceAttachedNotchTestMode = true
+        let layout = NotchGeometryService().panelLayout(for: .collapsed, metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
+
+        XCTAssertEqual(layout.panelFrame.rect, layout.attachmentGeometry.attachedShellFrame.rect)
     }
 
     func testExpandedPanelGrowsDownwardWithTopAnchored() {
@@ -137,12 +171,13 @@ final class NotchGeometryServiceTests: XCTestCase {
 
     func testOldToolbarConfigRepairsToAttachedDefaults() {
         var config = NotchShelfConfig.default
-        config.configVersion = 1
+        config.configVersion = 2
         config.collapsedWidth = 620
         config.compactWidth = 620
         config.collapsedHeight = 76
         config.compactHeight = 76
-        config.islandVerticalOffset = 64
+        config.islandVerticalOffset = 140
+        config.forceAttachedNotchTestMode = true
 
         XCTAssertTrue(config.repairAttachedNotchLayoutIfNeeded())
         XCTAssertEqual(config.configVersion, NotchShelfConfig.currentConfigVersion)
@@ -151,6 +186,7 @@ final class NotchGeometryServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual(config.compactWidth, 420)
         XCTAssertEqual(config.islandVerticalOffset, 0)
         XCTAssertTrue(config.overlayMenuBarForAttachedNotch)
+        XCTAssertFalse(config.forceAttachedNotchTestMode)
     }
 
     func testExternalDisplayUsesNonAttachedFallback() {

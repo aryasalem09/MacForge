@@ -33,6 +33,13 @@ struct SettingsView: View {
 
             Section("About MacForge") {
                 LabeledContent("Version", value: "0.1.0")
+                LabeledContent("Build", value: MacForgeBuildInfo.label)
+                LabeledContent("Branch", value: MacForgeBuildInfo.branch)
+                LabeledContent("Build Date", value: MacForgeBuildInfo.buildDate)
+                LabeledContent("Bundle", value: environment.buildInfo.bundlePath)
+                LabeledContent("Config", value: environment.configurationPath)
+                LabeledContent("Notch Mode", value: environment.notchConfig.preferredStyle.label)
+                LabeledContent("Placement", value: "x \(Int(environment.notchConfig.islandHorizontalOffset)), y \(Int(environment.notchConfig.islandVerticalOffset))")
                 LabeledContent("Target", value: "macOS 14+, tailored on macOS 26.5")
                 LabeledContent("Machine", value: "Apple Silicon MacBook Pro with notch-aware safe area support")
             }

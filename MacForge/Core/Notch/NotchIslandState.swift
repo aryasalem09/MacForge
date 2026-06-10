@@ -35,6 +35,126 @@ enum NotchIslandActivityKind: String, Codable, CaseIterable, Identifiable, Hasha
     var id: String { rawValue }
 }
 
+enum NotchHoverVisualState: String, Codable, CaseIterable, Identifiable, Hashable {
+    case idle
+    case hoverPending
+    case expandedByHover
+    case expandedByClick
+    case collapsePending
+    case draggingCalibration
+
+    var id: String { rawValue }
+}
+
+enum NotchHoverAction: Equatable {
+    case scheduleExpand
+    case scheduleCollapse
+    case cancelExpand
+    case cancelCollapse
+    case expand
+    case collapse
+}
+
+struct NotchHoverStateMachine: Hashable {
+    private(set) var state: NotchHoverVisualState = .idle
+    private(set) var pointerInside = false
+
+    mutating func pointerEntered(calibrationMode: Bool) -> [NotchHoverAction] {
+        guard !calibrationMode else {
+            state = .draggingCalibration
+            pointerInside = true
+            return [.cancelExpand, .cancelCollapse]
+        }
+
+        pointerInside = true
+        switch state {
+        case .idle, .collapsePending:
+            state = .hoverPending
+            return [.cancelCollapse, .scheduleExpand]
+        case .hoverPending:
+            return [.scheduleExpand]
+        case .expandedByHover, .expandedByClick:
+            return [.cancelCollapse]
+        case .draggingCalibration:
+            return [.cancelExpand, .cancelCollapse]
+        }
+    }
+
+    mutating func pointerExited(calibrationMode: Bool) -> [NotchHoverAction] {
+        pointerInside = false
+        guard !calibrationMode else {
+            return [.cancelExpand, .cancelCollapse]
+        }
+
+        switch state {
+        case .hoverPending:
+            state = .idle
+            return [.cancelExpand]
+        case .expandedByHover:
+            state = .collapsePending
+            return [.scheduleCollapse]
+        case .collapsePending:
+            return [.scheduleCollapse]
+        case .idle, .expandedByClick, .draggingCalibration:
+            return []
+        }
+    }
+
+    mutating func hoverDelayElapsed(calibrationMode: Bool) -> [NotchHoverAction] {
+        guard !calibrationMode,
+              pointerInside,
+              state == .hoverPending else {
+            return []
+        }
+
+        state = .expandedByHover
+        return [.expand]
+    }
+
+    mutating func collapseDelayElapsed(calibrationMode: Bool) -> [NotchHoverAction] {
+        guard !calibrationMode,
+              !pointerInside,
+              state == .collapsePending else {
+            return []
+        }
+
+        state = .idle
+        return [.collapse]
+    }
+
+    mutating func clickToggle(isExpanded: Bool, calibrationMode: Bool) -> [NotchHoverAction] {
+        guard !calibrationMode else { return [] }
+
+        if isExpanded, state == .expandedByClick {
+            state = .idle
+            pointerInside = false
+            return [.cancelExpand, .cancelCollapse, .collapse]
+        }
+
+        state = .expandedByClick
+        pointerInside = true
+        return [.cancelExpand, .cancelCollapse, .expand]
+    }
+
+    mutating func beginCalibrationDrag() -> [NotchHoverAction] {
+        state = .draggingCalibration
+        pointerInside = true
+        return [.cancelExpand, .cancelCollapse]
+    }
+
+    mutating func endCalibrationDrag() -> [NotchHoverAction] {
+        state = .idle
+        pointerInside = false
+        return [.cancelExpand, .cancelCollapse]
+    }
+
+    mutating func reset() -> [NotchHoverAction] {
+        state = .idle
+        pointerInside = false
+        return [.cancelExpand, .cancelCollapse]
+    }
+}
+
 struct NotchIslandActivity: Identifiable, Codable, Hashable {
     var id: UUID
     var kind: NotchIslandActivityKind

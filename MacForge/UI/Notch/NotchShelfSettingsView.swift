@@ -67,6 +67,7 @@ struct NotchShelfSettingsView: View {
                 Toggle("Expand on click", isOn: $environment.notchConfig.expandOnClick)
                 Toggle("Main display only", isOn: $environment.notchConfig.mainDisplayOnly)
                 Toggle("Overlay menu bar area for attached notch", isOn: $environment.notchConfig.overlayMenuBarForAttachedNotch)
+                Toggle("Allow Notch Island above menu bar", isOn: $environment.notchConfig.allowNotchIslandAboveMenuBar)
                 Toggle("Show placement debug overlay", isOn: $environment.notchConfig.showPlacementDebugOverlay)
                 HStack {
                     Slider(value: $environment.notchConfig.autoCollapseDelay, in: 1...10, step: 0.5) {
@@ -86,14 +87,28 @@ struct NotchShelfSettingsView: View {
             liveIslandSourceSection
 
             Section("Placement") {
-                slider("Vertical attach offset", value: $environment.notchConfig.islandVerticalOffset, range: -40...40, step: 1, suffix: "px") {
+                Toggle("Enable Calibration Mode", isOn: $environment.notchConfig.calibrationModeEnabled)
+                Toggle("Force Attached Notch Test Mode", isOn: Binding(
+                    get: { environment.notchConfig.forceAttachedNotchTestMode },
+                    set: { environment.setForceAttachedNotchTestMode($0) }
+                ))
+                slider("Vertical attach offset", value: $environment.notchConfig.islandVerticalOffset, range: -120...120, step: 1, suffix: "px") {
                     Int(environment.notchConfig.islandVerticalOffset)
                 }
-                slider("Horizontal offset", value: $environment.notchConfig.islandHorizontalOffset, range: -80...80, step: 1, suffix: "px") {
+                slider("Horizontal offset", value: $environment.notchConfig.islandHorizontalOffset, range: -160...160, step: 1, suffix: "px") {
                     Int(environment.notchConfig.islandHorizontalOffset)
                 }
-                slider("Shell height", value: $environment.notchConfig.attachedShellHeight, range: 20...80, step: 1, suffix: "px") {
+                slider("Shell height", value: $environment.notchConfig.attachedShellHeight, range: 20...110, step: 1, suffix: "px") {
                     Int(environment.notchConfig.attachedShellHeight)
+                }
+                HStack {
+                    Button("Save Calibration", systemImage: "checkmark.circle") {
+                        environment.saveNotchCalibration()
+                    }
+                    .disabled(!environment.notchConfig.calibrationModeEnabled)
+                    Button("Reset Calibration", systemImage: "location.slash") {
+                        environment.resetNotchCalibration()
+                    }
                 }
                 HStack {
                     Button("Snap to Detected Notch", systemImage: "scope") {
@@ -107,6 +122,11 @@ struct NotchShelfSettingsView: View {
                     Button("Repair Notch Island Layout", systemImage: "wrench.and.screwdriver") {
                         environment.repairNotchIslandLayout()
                     }
+                    Button("Hard Reset Notch Island Visual State", systemImage: "exclamationmark.arrow.triangle.2.circlepath", role: .destructive) {
+                        environment.hardResetNotchIslandVisualState()
+                    }
+                }
+                HStack {
                     Button("Copy Notch Geometry Debug Info", systemImage: "doc.on.doc") {
                         environment.copyNotchGeometryDebugInfo()
                     }
@@ -135,6 +155,8 @@ struct NotchShelfSettingsView: View {
             }
 
             widgetSection
+
+            diagnosticsSection
         }
     }
 
@@ -255,6 +277,30 @@ struct NotchShelfSettingsView: View {
             Toggle("Activity progress", isOn: $environment.notchConfig.showActivityProgress)
             Toggle("Clipboard placeholder", isOn: $environment.notchConfig.showClipboardPreviewPlaceholder)
         }
+    }
+
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            LabeledContent("Build", value: MacForgeBuildInfo.label)
+            LabeledContent("Branch", value: MacForgeBuildInfo.branch)
+            LabeledContent("Build Date", value: MacForgeBuildInfo.buildDate)
+            LabeledContent("Bundle", value: environment.buildInfo.bundlePath)
+            LabeledContent("Config", value: environment.configurationPath)
+            LabeledContent("Panel", value: environment.notchShelfWindowController.currentPanelFrame.map { format($0) } ?? "none")
+            LabeledContent("Level", value: environment.notchShelfWindowController.currentWindowLevelDescription)
+            LabeledContent("Hover", value: environment.notchHoverState.rawValue)
+            LabeledContent("Offsets", value: "x \(Int(environment.notchConfig.islandHorizontalOffset)), y \(Int(environment.notchConfig.islandVerticalOffset))")
+            if !environment.notchHoverDiagnostics.isEmpty {
+                Text(environment.notchHoverDiagnostics.joined(separator: "\n"))
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func format(_ rect: CGRect) -> String {
+        "x \(Int(rect.origin.x)), y \(Int(rect.origin.y)), w \(Int(rect.width)), h \(Int(rect.height))"
     }
 
     private func slider<Value: BinaryInteger>(

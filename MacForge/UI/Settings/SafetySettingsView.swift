@@ -34,6 +34,11 @@ struct SafetySettingsView: View {
                         Button("Repair Notch Island Layout", systemImage: "wrench.and.screwdriver") {
                             environment.repairNotchIslandLayout()
                         }
+                        Button("Hard Reset Notch Island Visual State", systemImage: "exclamationmark.arrow.triangle.2.circlepath") {
+                            environment.hardResetNotchIslandVisualState()
+                        }
+                    }
+                    HStack {
                         Button("Clear Live State", systemImage: "xmark.circle") {
                             environment.clearLiveIslandState()
                         }

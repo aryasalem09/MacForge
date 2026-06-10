@@ -58,6 +58,9 @@ struct NotchIslandView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
+    @State private var dragStartX: Double = 0
+    @State private var dragStartY: Double = 0
+    @State private var calibrationDragActive = false
 
     var body: some View {
         Group {
@@ -84,24 +87,34 @@ struct NotchIslandView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            guard environment.notchConfig.expandOnClick else { return }
-            if activityCenter.presentationState == .expanded {
-                activityCenter.collapse()
-            } else {
-                activityCenter.expand()
-            }
+            environment.toggleNotchIslandExpansionByClick()
         }
         .onHover { isHovering in
-            guard environment.notchConfig.expandOnHover else { return }
-            if isHovering {
-                activityCenter.expand()
-            } else if activityCenter.currentActivity == nil {
-                activityCenter.collapse()
-            }
+            environment.handleNotchHoverChanged(isHovering)
         }
         .gesture(
             DragGesture(minimumDistance: 14)
+                .onChanged { value in
+                    if environment.notchConfig.calibrationModeEnabled {
+                        if !calibrationDragActive {
+                            calibrationDragActive = true
+                            dragStartX = environment.notchConfig.islandHorizontalOffset
+                            dragStartY = environment.notchConfig.islandVerticalOffset
+                            environment.beginNotchCalibrationDrag()
+                        }
+                        environment.updateNotchCalibrationDrag(
+                            startX: dragStartX,
+                            startY: dragStartY,
+                            translation: value.translation
+                        )
+                    }
+                }
                 .onEnded { value in
+                    if environment.notchConfig.calibrationModeEnabled {
+                        calibrationDragActive = false
+                        environment.endNotchCalibrationDrag()
+                        return
+                    }
                     handleSwipe(value.translation)
                 }
         )
@@ -144,7 +157,7 @@ struct NotchIslandView: View {
     private var debugOverlayText: String {
         let config = environment.notchConfig
         let snapshot = liveIslandCoordinator.currentSnapshot
-        return "state \(activityCenter.presentationState.rawValue) | \(snapshot.kind.rawValue) | c \(Int(config.collapsedWidth))x\(Int(config.collapsedHeight)) | m \(Int(config.compactWidth))x\(Int(config.compactHeight)) | shell \(Int(config.attachedShellHeight)) | x \(Int(config.islandHorizontalOffset)) | y \(Int(config.islandVerticalOffset))"
+        return "\(MacForgeBuildInfo.label) | state \(activityCenter.presentationState.rawValue) | hover \(environment.notchHoverState.rawValue) | \(snapshot.kind.rawValue) | shell \(Int(config.attachedShellHeight)) | x \(Int(config.islandHorizontalOffset)) | y \(Int(config.islandVerticalOffset))"
     }
 }
 

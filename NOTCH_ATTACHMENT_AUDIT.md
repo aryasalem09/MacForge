@@ -4,6 +4,7 @@
 
 - Base branch: `v0.26.1-notch-runtime-recovery`
 - Fix branch: `v0.26.2-pixel-perfect-notch-attachment`
+- Real-screen follow-up: `v0.26.3-real-notch-visual-fix`
 
 ## User Screenshot Bug
 
@@ -73,3 +74,17 @@ Old toolbar-like values are repaired when Notch Island mode is active and any of
 - shell height outside 20...80
 
 Settings also includes Repair Notch Island Layout for manual recovery.
+
+## v0.26.3 Follow-Up
+
+The user reported that v0.26.2 still failed the real-screen screenshot check. The new fix treats automatic geometry as a starting point rather than the final authority:
+
+- `NotchPanelLayout` now exposes the actual `NSPanel` frame plus panel-local shell/content frames.
+- The panel top anchor stays fixed while collapsed, compact, and expanded states change height downward.
+- Vertical calibration moves the actual panel top edge, not only the shell drawn inside the panel.
+- Horizontal calibration moves the panel center under the physical notch.
+- Force Attached Notch Test Mode isolates placement from widgets and media providers.
+- Calibration Mode lets the user drag the island into exact visual alignment when public screen geometry is imperfect.
+- Hover expansion is debounced so resizing the panel does not create enter/exit oscillation.
+
+Real acceptance is screenshot-based. If `VisualEvidence/after_idle.png` still shows a visible gap, the next step is to use Calibration Mode and record the saved offsets in `REAL_NOTCH_VISUAL_AUDIT.md`.
