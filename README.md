@@ -16,9 +16,12 @@ This project was created and locally verified on:
 ## What It Can Customize
 
 - Menu bar quick actions for common MacForge workflows.
-- A Notch Island mode with camera-anchored collapsed, compact activity, and expanded panel states using public `NSScreen` geometry and `NSPanel`.
+- A Notch Island mode with camera-anchored collapsed, compact activity, and expanded panel states using public `NSScreen` geometry and `NSPanel`. The shape morphs like the iPhone Dynamic Island — a rounded panel that grows out of the physical notch.
+- A polished Now Playing card (album artwork, scrubber with elapsed/remaining time, transport controls, waveform) and a tabbed expanded island: **Now / Agents / Tray / Tools**.
 - Provider-based Live Island sources for Apple Music, Spotify, QuickTime, browser media hints, downloads, timers, MacForge tasks, and recent command results.
-- NotchNook-style practical interactions: idle pill, hover/click/swipe expansion, media controls where supported, temporary drag-and-drop tray, and expanded widgets.
+- A battery/charging indicator in the island header (public `IOKit` power sources).
+- **Agent & CLI activity**: Claude Code, Codex, builds, deploys, or any terminal job can push live progress and notifications into the notch, split-screen alongside music. See "Agents & CLI activity" below.
+- NotchNook-style practical interactions: idle pill, hover/click/swipe expansion, media controls where supported, a drag-and-drop file tray, and expanded widgets.
 - A Classic Shelf mode for the older wide top-center HUD.
 - Accessibility-based window layouts for the focused window.
 - Experimental local Dock settings through whitelisted `/usr/bin/defaults` and `/usr/bin/killall Dock` commands.
@@ -85,6 +88,51 @@ Use Copy Notch Geometry Debug Info (Settings -> Notch Shelf -> Island Size) when
 If a stale configuration from an older build misbehaves, use Settings -> Safety -> Repair Notch Island Layout (or Reset Island Layout in Notch settings); both re-derive everything from the current notch geometry.
 
 For isolated visual testing, launch with `--macforge-force-notch-test` (optionally plus `--macforge-force-notch-expanded`). These flags self-heal on the next normal launch.
+
+### Agents & CLI Activity
+
+MacForge can show live progress and notifications from Claude Code, Codex, builds, deploys, or any terminal job right in the notch — split-screen next to whatever music is playing. It works by watching a newline-delimited JSON log; any tool that can append a line can drive it.
+
+- **Log location:** `~/Library/Application Support/MacForge/agent-events.jsonl` (also exported as `$MACFORGE_AGENT_EVENTS` when you source the helper). Use Settings → Notch Shelf → Agents & CLI → *Copy Path* / *Reveal Log*, or *Run Demo Task* to preview.
+- **Event format** (one JSON object per line):
+
+  ```json
+  {"id":"build","source":"Claude Code","title":"Building","message":"tests 3/8","progress":0.4,"state":"running"}
+  {"id":"build","source":"Claude Code","title":"Build succeeded","message":"88 tests","state":"success"}
+  {"source":"Codex","kind":"notification","title":"Review complete","message":"3 findings"}
+  ```
+
+  Fields (all optional): `id` (repeat the same id to advance a task), `source`, `title`, `message`, `progress` (0–1), `state` (`running`/`success`/`failure`/`info`), `kind` (`progress`/`notification`/`done`/`clear`). Running tasks that stop updating for 60s are dropped; finished tasks linger briefly.
+
+- **Helper script:**
+
+  ```sh
+  source Scripts/macforge-notify.sh   # or call it directly
+  Scripts/macforge-notify.sh --id build --source "Claude Code" --title "Building" --progress 0.4 --state running
+  Scripts/macforge-notify.sh --id build --title "Build succeeded" --state success
+  Scripts/macforge-notify.sh --source "deploy" --title "Deployed" --notify
+  ```
+
+- **Claude Code hook example** — surface a notification whenever Claude Code finishes a turn. Add to `~/.claude/settings.json`:
+
+  ```json
+  {
+    "hooks": {
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "~/Downloads/MacForge/Scripts/macforge-notify.sh --source 'Claude Code' --title 'Turn complete' --notify"
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+
+  Codex and other CLIs can append events the same way (from a script, a git hook, a CI step, etc.). Everything is local — MacForge only reads the file; nothing is sent anywhere.
 
 ### Force A Notch Media Card
 

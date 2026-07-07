@@ -79,6 +79,8 @@ struct NotchShelfSettingsView: View {
 
             liveIslandSourceSection
 
+            agentActivitySection
+
             Section {
                 slider("Expanded width", value: $environment.notchConfig.expandedWidth, range: 480...680, step: 10, suffix: "px") {
                     Int(environment.notchConfig.expandedWidth)
@@ -109,6 +111,28 @@ struct NotchShelfSettingsView: View {
         }
     }
 
+    private var agentActivitySection: some View {
+        Section {
+            Toggle("Show agent & CLI activity", isOn: $environment.liveIslandSettings.agentActivityEnabled)
+            HStack {
+                Button("Run Demo Task", systemImage: "play.fill") {
+                    environment.showAgentActivityTest()
+                }
+                Button("Reveal Log", systemImage: "folder") {
+                    environment.revealAgentEventLog()
+                }
+                Button("Copy Path", systemImage: "doc.on.doc") {
+                    environment.copyAgentEventLogPath()
+                }
+            }
+            .disabled(!environment.liveIslandSettings.agentActivityEnabled)
+        } header: {
+            Text("Agents & CLI")
+        } footer: {
+            Text("MacForge watches a local JSON event log so Claude Code, Codex, builds, or any terminal job can show progress and notifications in the notch — alongside music. Append newline-delimited JSON to the log at the copied path (also available as $MACFORGE_AGENT_EVENTS after sourcing Scripts/macforge-notify.sh).")
+        }
+    }
+
     private var liveIslandSourceSection: some View {
         Group {
             Section {
@@ -121,6 +145,7 @@ struct NotchShelfSettingsView: View {
                 Toggle("Timers", isOn: $environment.liveIslandSettings.timersEnabled)
                 Toggle("Keep media visible while playing", isOn: $environment.liveIslandSettings.keepMediaVisibleWhilePlaying)
                 Toggle("Show artwork", isOn: $environment.liveIslandSettings.showArtwork)
+                Toggle("Show battery in island", isOn: $environment.liveIslandSettings.showBatteryInIsland)
                 Toggle("Privacy Mode", isOn: $environment.liveIslandSettings.privacyMode)
                 Toggle("Provider diagnostics", isOn: $environment.liveIslandSettings.providerDiagnosticsEnabled)
             } header: {

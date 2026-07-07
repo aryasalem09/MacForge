@@ -1,16 +1,17 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct NotchIslandControlsView: View {
+/// Window actions, timers, quick folders, and presets — the "Tools" tab of the
+/// expanded island.
+struct NotchToolsView: View {
     @EnvironmentObject private var environment: AppEnvironment
-    @State private var isDropTargeted = false
 
     private var accessibilityGranted: Bool {
         environment.permissionStates.first { $0.id == "accessibility" }?.status == .granted
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             controlSection(title: "Windows") {
                 HStack(spacing: 8) {
                     islandButton(.leftHalf)
@@ -42,48 +43,6 @@ struct NotchIslandControlsView: View {
                         timerButton(minutes: 5)
                         timerButton(minutes: 10)
                         timerButton(minutes: 25)
-                    }
-                }
-            }
-
-            controlSection(title: "Tray") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Label("Drop files here", systemImage: "tray.and.arrow.down")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.72))
-                        Spacer()
-                        Button {
-                            environment.clearNotchFileTray()
-                        } label: {
-                            Image(systemName: "trash")
-                                .frame(width: 24, height: 22)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white.opacity(environment.notchFileTrayItems.isEmpty ? 0.34 : 0.82))
-                        .disabled(environment.notchFileTrayItems.isEmpty)
-                        .help("Clear tray")
-                        .accessibilityLabel("Clear tray")
-                    }
-                    .padding(8)
-                    .background(isDropTargeted ? .white.opacity(0.16) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                    .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted, perform: handleDrop)
-
-                    if !environment.notchFileTrayItems.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(environment.notchFileTrayItems, id: \.self) { url in
-                                    Button {
-                                        environment.revealNotchFileTrayItem(url)
-                                    } label: {
-                                        Label(url.lastPathComponent, systemImage: "doc")
-                                            .lineLimit(1)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .help(url.path)
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -164,6 +123,94 @@ struct NotchIslandControlsView: View {
         .accessibilityLabel("Start \(minutes)-minute timer")
     }
 
+    private func controlSection<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.58))
+            content()
+        }
+    }
+}
+
+/// A persistent drag-and-drop file shelf — the "Tray" tab of the expanded
+/// island, matching the NotchNook/DynamicLake file tray.
+struct NotchTrayView: View {
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Drop files to keep them handy", systemImage: "tray.and.arrow.down")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.72))
+                Spacer()
+                Button {
+                    environment.clearNotchFileTray()
+                } label: {
+                    Image(systemName: "trash")
+                        .frame(width: 24, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(environment.notchFileTrayItems.isEmpty ? 0.34 : 0.82))
+                .disabled(environment.notchFileTrayItems.isEmpty)
+                .help("Clear tray")
+                .accessibilityLabel("Clear tray")
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isDropTargeted ? Color.mint.opacity(0.18) : Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isDropTargeted ? Color.mint.opacity(0.7) : Color.white.opacity(0.12),
+                        style: StrokeStyle(lineWidth: 1.4, dash: [6, 4])
+                    )
+            )
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted, perform: handleDrop)
+
+            if environment.notchFileTrayItems.isEmpty {
+                Label("No files yet", systemImage: "doc.on.doc")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 6) {
+                        ForEach(environment.notchFileTrayItems, id: \.self) { url in
+                            Button {
+                                environment.revealNotchFileTrayItem(url)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "doc")
+                                        .foregroundStyle(.mint)
+                                    Text(url.lastPathComponent)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "arrow.up.forward.app")
+                                        .foregroundStyle(.white.opacity(0.4))
+                                }
+                                .font(.caption)
+                                .padding(8)
+                                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .help(url.path)
+                            .draggable(url)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
@@ -185,17 +232,5 @@ struct NotchIslandControlsView: View {
         }
 
         return true
-    }
-
-    private func controlSection<Content: View>(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.58))
-            content()
-        }
     }
 }

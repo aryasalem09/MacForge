@@ -200,3 +200,119 @@ final class NotchIslandStateTests: XCTestCase {
         XCTAssertFalse(config.calibrationModeEnabled)
     }
 }
+
+@MainActor
+final class AgentActivityCenterTests: XCTestCase {
+    private func makeCenter(now: Date) -> AgentActivityCenter {
+        AgentActivityCenter(
+            eventsURL: URL(fileURLWithPath: "/tmp/macforge-agent-tests-\(UUID().uuidString).jsonl"),
+            nowProvider: { now }
+        )
+    }
+
+    func testProgressEventCreatesRunningActivity() {
+        let now = Date()
+        let center = makeCenter(now: now)
+
+        center.ingest(AgentActivityEvent(id: "build", source: "Claude Code", kind: nil, title: "Building", message: "3/8", progress: 0.4, state: nil, ts: nil), now: now)
+
+        XCTAssertEqual(center.activities.count, 1)
+        XCTAssertEqual(center.primary?.state, .running)
+        XCTAssertEqual(center.primary?.progress, 0.4)
+        XCTAssertEqual(center.runningCount, 1)
+    }
+
+    func testSameIdUpdatesInPlaceInsteadOfDuplicating() {
+        let now = Date()
+        let center = makeCenter(now: now)
+        center.ingest(AgentActivityEvent(id: "build", source: "Claude Code", kind: nil, title: "Building", message: "3/8", progress: 0.4, state: "running", ts: nil), now: now)
+        center.ingest(AgentActivityEvent(id: "build", source: "Claude Code", kind: nil, title: "Building", message: "7/8", progress: 0.9, state: "running", ts: nil), now: now)
+
+        XCTAssertEqual(center.activities.count, 1)
+        XCTAssertEqual(center.primary?.progress, 0.9)
+        XCTAssertEqual(center.primary?.message, "7/8")
+    }
+
+    func testDoneEventBecomesSuccessAndSetsNotification() {
+        let now = Date()
+        let center = makeCenter(now: now)
+        center.ingest(AgentActivityEvent(id: "build", source: "Claude Code", kind: "done", title: "Build succeeded", message: nil, progress: nil, state: nil, ts: nil), now: now)
+
+        XCTAssertEqual(center.primary?.state, .success)
+        XCTAssertEqual(center.lastNotification?.title, "Build succeeded")
+        XCTAssertEqual(center.runningCount, 0)
+    }
+
+    func testNotificationsWithoutIdDoNotOverwriteEachOther() {
+        let now = Date()
+        let center = makeCenter(now: now)
+        center.ingest(AgentActivityEvent(id: nil, source: "Codex", kind: "notification", title: "One", message: nil, progress: nil, state: nil, ts: nil), now: now)
+        center.ingest(AgentActivityEvent(id: nil, source: "Codex", kind: "notification", title: "Two", message: nil, progress: nil, state: nil, ts: nil), now: now)
+
+        XCTAssertEqual(center.activities.count, 2)
+    }
+
+    func testClearWithIdRemovesOnlyThatTask() {
+        let now = Date()
+        let center = makeCenter(now: now)
+        center.ingest(AgentActivityEvent(id: "a", source: "X", kind: nil, title: "A", message: nil, progress: nil, state: "running", ts: nil), now: now)
+        center.ingest(AgentActivityEvent(id: "b", source: "X", kind: nil, title: "B", message: nil, progress: nil, state: "running", ts: nil), now: now)
+        center.ingest(AgentActivityEvent(id: "a", source: "X", kind: "clear", title: nil, message: nil, progress: nil, state: nil, ts: nil), now: now)
+
+        XCTAssertEqual(center.activities.map(\.id), ["b"])
+    }
+
+    func testExpireStaleDropsAbandonedRunningTasksButKeepsFreshOnes() {
+        let start = Date()
+        let center = makeCenter(now: start)
+        center.ingest(AgentActivityEvent(id: "stuck", source: "X", kind: nil, title: "Stuck", message: nil, progress: nil, state: "running", ts: nil), now: start)
+
+        center.expireStale(now: start.addingTimeInterval(120))
+        XCTAssertTrue(center.activities.isEmpty)
+    }
+
+    func testExpireStaleLingersThenDropsFinishedTasks() {
+        let start = Date()
+        let center = makeCenter(now: start)
+        center.ingest(AgentActivityEvent(id: "done", source: "X", kind: "done", title: "Done", message: nil, progress: nil, state: nil, ts: nil), now: start)
+
+        center.expireStale(now: start.addingTimeInterval(3))
+        XCTAssertEqual(center.activities.count, 1)
+
+        center.expireStale(now: start.addingTimeInterval(30))
+        XCTAssertTrue(center.activities.isEmpty)
+    }
+
+    func testProgressIsClampedToUnitRange() {
+        let now = Date()
+        let center = makeCenter(now: now)
+        center.ingest(AgentActivityEvent(id: "x", source: "X", kind: nil, title: "X", message: nil, progress: 1.8, state: "running", ts: nil), now: now)
+        XCTAssertEqual(center.primary?.progress, 1)
+    }
+
+    func testPartialLineSplitAcrossWritesIsNotDropped() throws {
+        let url = URL(fileURLWithPath: "/tmp/macforge-agent-partial-\(UUID().uuidString).jsonl")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let center = AgentActivityCenter(eventsURL: url)
+        center.start()
+        defer { center.stop() }
+
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+
+        // Write a JSON line in two halves, reading in between so the first read
+        // sees only the fragment before the newline.
+        let full = #"{"id":"split","source":"CLI","title":"Half","state":"running"}"# + "\n"
+        let bytes = Array(full.utf8)
+        let mid = bytes.count / 2
+        handle.write(Data(bytes[0..<mid]))
+        center.pumpForTesting()
+        XCTAssertTrue(center.activities.isEmpty, "partial line should not decode yet")
+
+        handle.write(Data(bytes[mid...]))
+        center.pumpForTesting()
+        XCTAssertEqual(center.activities.first?.id, "split", "completed line should ingest")
+    }
+}

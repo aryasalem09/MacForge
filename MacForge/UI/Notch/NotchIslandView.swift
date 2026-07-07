@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The island silhouette: flat top edge flush with the screen, top corners
-/// flaring outward the way the physical notch meets the bezel, and rounded
-/// bottom corners. Both radii animate so the shape can morph between states.
+/// The island silhouette: a panel that hangs flush from the top edge of the
+/// screen with subtly rounded top corners and large, continuous rounded bottom
+/// corners — the NotchNook/Dynamic-Island shape. Both radii animate so the
+/// shape morphs smoothly between collapsed, compact, and expanded.
 struct NotchShape: Shape {
     var topRadius: CGFloat
     var bottomRadius: CGFloat
@@ -16,28 +17,31 @@ struct NotchShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let topR = min(topRadius, rect.width / 4, rect.height / 2)
-        let bottomR = min(bottomRadius, rect.width / 2 - topR, rect.height - topR)
+        let topR = min(topRadius, rect.width / 2, rect.height / 2)
+        let bottomR = min(bottomRadius, rect.width / 2, rect.height - topR)
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        // Top-left corner (subtle) → across the top → top-right corner.
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + topR))
         path.addQuadCurve(
-            to: CGPoint(x: rect.minX + topR, y: rect.minY + topR),
-            control: CGPoint(x: rect.minX + topR, y: rect.minY)
+            to: CGPoint(x: rect.minX + topR, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rect.minX + topR, y: rect.maxY - bottomR))
+        path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
         path.addQuadCurve(
-            to: CGPoint(x: rect.minX + topR + bottomR, y: rect.maxY),
-            control: CGPoint(x: rect.minX + topR, y: rect.maxY)
+            to: CGPoint(x: rect.maxX, y: rect.minY + topR),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rect.maxX - topR - bottomR, y: rect.maxY))
+        // Right side down → large bottom-right corner.
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - bottomR))
         path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - topR, y: rect.maxY - bottomR),
-            control: CGPoint(x: rect.maxX - topR, y: rect.maxY)
+            to: CGPoint(x: rect.maxX - bottomR, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY + topR))
+        // Bottom edge → large bottom-left corner → back up.
+        path.addLine(to: CGPoint(x: rect.minX + bottomR, y: rect.maxY))
         path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY),
-            control: CGPoint(x: rect.maxX - topR, y: rect.minY)
+            to: CGPoint(x: rect.minX, y: rect.maxY - bottomR),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
         )
         path.closeSubpath()
         return path
@@ -52,6 +56,7 @@ struct NotchIslandRootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
+    @EnvironmentObject private var agentCenter: AgentActivityCenter
 
     private var state: NotchIslandPresentationState { model.displayState }
 
@@ -63,11 +68,23 @@ struct NotchIslandRootView: View {
         isCollapsed && environment.notchHoverState == .hoverPending ? 1.05 : 1.0
     }
 
+    /// Bottom corner radius per state. Large, continuous-feeling curves give
+    /// the island the soft NotchNook/Dynamic-Island look the reference shows.
     private var bottomRadius: CGFloat {
         switch state {
-        case .hidden, .collapsed: 9
-        case .compact: 13
-        case .expanded: 24
+        case .hidden, .collapsed: 11
+        case .compact: 26
+        case .expanded: 40
+        }
+    }
+
+    /// Top corner radius — kept small so the panel sits flush against the top
+    /// edge of the screen like a panel hanging from the notch.
+    private var topRadius: CGFloat {
+        switch state {
+        case .hidden, .collapsed: 6
+        case .compact: 8
+        case .expanded: 10
         }
     }
 
@@ -82,7 +99,6 @@ struct NotchIslandRootView: View {
 
     private func island(layout: NotchIslandLayout) -> some View {
         let size = layout.shapeSize(for: state)
-        let topRadius = CGFloat(NotchIslandLayout.topCornerFlare)
         let shape = NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
 
         return ZStack(alignment: .top) {

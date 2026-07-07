@@ -59,6 +59,8 @@
 		AA1000000000000000000108 /* LiveIslandProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000107 /* LiveIslandProvider.swift */; };
 		AA1000000000000000000109 /* LiveIslandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/LiveIslandCoordinator.swift"; sourceTree = "<group>"; };
 		AA100000000000000000010A /* LiveIslandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000109 /* LiveIslandCoordinator.swift */; };
+		AA1000000000000000000301 /* AgentActivityCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Agents/AgentActivityCenter.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000302 /* AgentActivityCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000301 /* AgentActivityCenter.swift */; };
 		C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfPanel.swift"; sourceTree = "<group>"; };
 		9AA7A2C70886E022B2A06C48 /* NotchShelfPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */; };
 		ADDDEF87B269C3A37207B53B /* NotchShelfWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfWindowController.swift"; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 				AA1000000000000000000105,
 				AA1000000000000000000107,
 				AA1000000000000000000109,
+				AA1000000000000000000301,
 				C24B39CF3AEBD0821EA3D0B3,
 				ADDDEF87B269C3A37207B53B,
 				52CCD9FE5355F336CD024F6A,
@@ -372,6 +375,7 @@
 				AA1000000000000000000106,
 				AA1000000000000000000108,
 				AA100000000000000000010A,
+				AA1000000000000000000302,
 				9AA7A2C70886E022B2A06C48,
 				1575ADD112A28C8C75255A5D,
 				38B7CE9A7F42E7F7020740DE,

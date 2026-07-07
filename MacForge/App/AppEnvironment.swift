@@ -57,6 +57,14 @@ final class AppEnvironment: ObservableObject {
         didSet {
             if !Self.isRunningUnitTests, !notchConfig.forceAttachedNotchTestMode {
                 liveIslandCoordinator.updateSettings(liveIslandSettings)
+                if liveIslandSettings.agentActivityEnabled != oldValue.agentActivityEnabled {
+                    if liveIslandSettings.agentActivityEnabled {
+                        agentActivityCenter.start()
+                    } else {
+                        agentActivityCenter.stop()
+                        agentActivityCenter.clearAll()
+                    }
+                }
             }
             persist()
         }
@@ -118,6 +126,7 @@ final class AppEnvironment: ObservableObject {
     let rollbackManager = RollbackManager()
     let notchIslandActivityCenter = NotchIslandActivityCenter()
     let liveIslandCoordinator = LiveIslandCoordinator()
+    let agentActivityCenter = AgentActivityCenter()
 
     private let configurationURL: URL
     private var isLoading = true
@@ -186,6 +195,9 @@ final class AppEnvironment: ObservableObject {
         if !Self.isRunningUnitTests, !notchConfig.forceAttachedNotchTestMode {
             liveIslandCoordinator.updateSettings(liveIslandSettings)
             liveIslandCoordinator.start()
+            if liveIslandSettings.agentActivityEnabled {
+                agentActivityCenter.start()
+            }
         }
         refreshPermissions()
         refreshWallpaperStates()
@@ -197,6 +209,21 @@ final class AppEnvironment: ObservableObject {
         }
         if forceVisualTest {
             append(.success("Visual QA", "Running \(MacForgeBuildInfo.label) with forced attached notch test mode."))
+        }
+        if launchArguments.contains("--macforge-demo-island"), !Self.isRunningUnitTests {
+            // Suppress persistence so this QA-only override never leaks the
+            // enabled/island state into a normal launch's saved configuration.
+            isLoading = true
+            notchConfig.enabled = true
+            notchConfig.preferredStyle = .island
+            isLoading = false
+            notchIslandActivityCenter.clearActivity()
+            commandResults.removeAll()
+            liveIslandCoordinator.showTestSnapshot(kind: .music)
+            agentActivityCenter.injectTestActivity()
+            let demoExpanded = launchArguments.contains("--macforge-demo-expanded")
+            notchIslandActivityCenter.presentationState = demoExpanded ? .expanded : .compact
+            updateNotchShelf()
         }
     }
 
@@ -394,6 +421,36 @@ final class AppEnvironment: ObservableObject {
         append(.success("Live Island", "Cleared transient activity and provider test state."))
     }
 
+    // MARK: - Agent activity
+
+    func showAgentActivityTest() {
+        agentActivityCenter.injectTestActivity()
+        if notchConfig.enabled, notchConfig.preferredStyle == .island, notchIslandActivityCenter.presentationState == .collapsed {
+            notchIslandActivityCenter.presentationState = .compact
+        }
+        record(.success("Agent Activity", "Injected a demo Claude Code task to preview the split notch."))
+    }
+
+    func clearAgentActivity() {
+        agentActivityCenter.clearAll()
+        append(.success("Agent Activity", "Cleared agent and CLI activity."))
+    }
+
+    func revealAgentEventLog() {
+        let url = agentActivityCenter.eventsURL
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        record(.success("Agent Activity", "Revealed the agent event log at \(url.path)."))
+    }
+
+    func copyAgentEventLogPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(agentActivityCenter.eventsURL.path, forType: .string)
+        append(.success("Agent Activity", "Copied the agent event log path to the clipboard."))
+    }
+
     func restoreDockManagedSettings() async {
         let wasEnabled = experimentalDockTweaksEnabled
         if !experimentalDockTweaksEnabled {
@@ -415,6 +472,7 @@ final class AppEnvironment: ObservableObject {
         notchConfig.preferredStyle = .island
         resetNotchConfigToSafeDefaults()
         liveIslandCoordinator.clearTransientState()
+        agentActivityCenter.clearAll()
         resetHoverState()
         notchIslandActivityCenter.hide()
         liveIslandSettings = .default
@@ -1065,6 +1123,18 @@ final class AppEnvironment: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Agent/CLI activity surfaces the island (split with media) the same
+        // way live media does.
+        agentActivityCenter.$activities
+            .map { $0.count }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.syncNotchIslandPresentation()
+                }
+            }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
@@ -1094,7 +1164,9 @@ final class AppEnvironment: ObservableObject {
         }
 
         let snapshot = snapshot ?? liveIslandCoordinator.currentSnapshot
-        let shouldUseCompact = snapshot.kind != .idle && snapshot.priority >= .backgroundMedia
+        let mediaActive = snapshot.kind != .idle && snapshot.priority >= .backgroundMedia
+        let agentActive = agentActivityCenter.hasActivity
+        let shouldUseCompact = mediaActive || agentActive
 
         switch notchIslandActivityCenter.presentationState {
         case .hidden:

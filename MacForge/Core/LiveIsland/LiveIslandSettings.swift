@@ -12,6 +12,8 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
     var showArtwork: Bool
     var privacyMode: Bool
     var providerDiagnosticsEnabled: Bool
+    var agentActivityEnabled: Bool
+    var showBatteryInIsland: Bool
     var downloadsFolderBookmark: Data?
     var downloadsFolderName: String?
 
@@ -27,6 +29,8 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         showArtwork: true,
         privacyMode: false,
         providerDiagnosticsEnabled: false,
+        agentActivityEnabled: true,
+        showBatteryInIsland: true,
         downloadsFolderBookmark: nil,
         downloadsFolderName: nil
     )
@@ -43,6 +47,8 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         showArtwork: Bool,
         privacyMode: Bool,
         providerDiagnosticsEnabled: Bool,
+        agentActivityEnabled: Bool,
+        showBatteryInIsland: Bool,
         downloadsFolderBookmark: Data?,
         downloadsFolderName: String?
     ) {
@@ -57,6 +63,8 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         self.showArtwork = showArtwork
         self.privacyMode = privacyMode
         self.providerDiagnosticsEnabled = providerDiagnosticsEnabled
+        self.agentActivityEnabled = agentActivityEnabled
+        self.showBatteryInIsland = showBatteryInIsland
         self.downloadsFolderBookmark = downloadsFolderBookmark
         self.downloadsFolderName = downloadsFolderName
     }
@@ -101,6 +109,8 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         showArtwork = try container.decodeIfPresent(Bool.self, forKey: .showArtwork) ?? defaults.showArtwork
         privacyMode = try container.decodeIfPresent(Bool.self, forKey: .privacyMode) ?? defaults.privacyMode
         providerDiagnosticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .providerDiagnosticsEnabled) ?? defaults.providerDiagnosticsEnabled
+        agentActivityEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentActivityEnabled) ?? defaults.agentActivityEnabled
+        showBatteryInIsland = try container.decodeIfPresent(Bool.self, forKey: .showBatteryInIsland) ?? defaults.showBatteryInIsland
         downloadsFolderBookmark = try container.decodeIfPresent(Data.self, forKey: .downloadsFolderBookmark) ?? defaults.downloadsFolderBookmark
         downloadsFolderName = try container.decodeIfPresent(String.self, forKey: .downloadsFolderName) ?? defaults.downloadsFolderName
     }

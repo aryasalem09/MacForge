@@ -216,6 +216,7 @@ final class NotchShelfWindowController {
             .environmentObject(environment)
             .environmentObject(environment.notchIslandActivityCenter)
             .environmentObject(environment.liveIslandCoordinator)
+            .environmentObject(environment.agentActivityCenter)
         let hostingView = NSHostingView(rootView: AnyView(root))
         hostingView.frame = CGRect(origin: .zero, size: initialFrame.size)
         hostingView.autoresizingMask = [.width, .height]
