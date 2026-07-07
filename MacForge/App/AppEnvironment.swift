@@ -210,6 +210,11 @@ final class AppEnvironment: ObservableObject {
         if forceVisualTest {
             append(.success("Visual QA", "Running \(MacForgeBuildInfo.label) with forced attached notch test mode."))
         }
+        if !Self.isRunningUnitTests, !forceVisualTest {
+            // Surface the macOS Accessibility approval dialog on launch when it
+            // hasn't been granted, so window features work instead of erroring.
+            promptForAccessibilityIfNeeded()
+        }
         if launchArguments.contains("--macforge-demo-island"), !Self.isRunningUnitTests {
             // Suppress persistence so this QA-only override never leaks the
             // enabled/island state into a normal launch's saved configuration.
@@ -562,12 +567,20 @@ final class AppEnvironment: ObservableObject {
     }
 
     func refreshWindows() async {
+        // Don't spam the notch/log with the accessibility error on the
+        // automatic launch refresh — the Permissions and Windows screens
+        // already show a grant affordance, and launch prompts for approval.
+        guard permissionCenter.accessibilityGranted else {
+            windows = []
+            return
+        }
         let (windowInfos, results) = await windowService.listWindows()
         windows = windowInfos
         results.forEach(append)
     }
 
     func tileFocusedWindow(_ layout: WindowLayoutType) async {
+        guard requireAccessibility(for: "arrange windows") else { return }
         notchIslandActivityCenter.showActivity(
             kind: .windowAction,
             title: "Window Action",
@@ -580,6 +593,7 @@ final class AppEnvironment: ObservableObject {
     }
 
     func moveFocusedWindowToNextDisplay() async {
+        guard requireAccessibility(for: "move windows between displays") else { return }
         notchIslandActivityCenter.showActivity(
             kind: .windowAction,
             title: "Window Action",
@@ -589,6 +603,40 @@ final class AppEnvironment: ObservableObject {
         )
         append(await windowService.moveFocusedWindowToNextDisplay())
         await refreshWindows()
+    }
+
+    /// Ensures Accessibility is granted before a window action. When missing,
+    /// opens the macOS approval prompt (system dialog + Settings) and shows a
+    /// friendly notch card instead of a hard error, then returns false.
+    @discardableResult
+    func requireAccessibility(for action: String) -> Bool {
+        if permissionCenter.accessibilityGranted { return true }
+        permissionCenter.requestAccessibility()
+        refreshPermissions()
+        notchIslandActivityCenter.showActivity(
+            kind: .permission,
+            title: "Accessibility needed",
+            message: "Approve MacForge in System Settings to \(action).",
+            symbolName: "lock.shield",
+            duration: notchConfig.autoCollapseDelay
+        )
+        record(.success("Accessibility", "Opened the approval prompt so you can allow MacForge to \(action)."))
+        return false
+    }
+
+    func promptForAccessibilityIfNeeded() {
+        guard !permissionCenter.accessibilityGranted else { return }
+        let key = "MacForgeDidOpenAccessibilityApproval"
+        if UserDefaults.standard.bool(forKey: key) {
+            // Seen the approval flow already this install — just re-show the
+            // lightweight system dialog so we don't yank focus to Settings.
+            permissionCenter.promptAccessibilityDialog()
+        } else {
+            // First launch without access: take the user straight to the
+            // approval screen so they can toggle MacForge on.
+            UserDefaults.standard.set(true, forKey: key)
+            permissionCenter.requestAccessibility()
+        }
     }
 
     func applyDockSettings() async {

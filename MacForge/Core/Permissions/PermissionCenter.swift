@@ -66,6 +66,13 @@ final class PermissionCenter {
         accessibilityService.openAccessibilitySettings()
     }
 
+    /// Shows only the macOS "grant Accessibility" system dialog (which has its
+    /// own "Open System Settings" button) without also force-opening Settings.
+    /// Used for the gentle launch-time prompt.
+    func promptAccessibilityDialog() {
+        _ = accessibilityService.isTrusted(prompt: true)
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) -> CommandResult {
         guard #available(macOS 13.0, *) else {
             return .failure("Launch at Login", "Launch at Login requires macOS 13 or later.")
