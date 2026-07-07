@@ -45,7 +45,7 @@ enum NotchIslandMaterialStyle: String, CaseIterable, Codable, Identifiable, Hash
 }
 
 struct NotchShelfConfig: Codable, Equatable, Hashable {
-    static let currentConfigVersion = 263
+    static let currentConfigVersion = 270
 
     var configVersion: Int
     var enabled: Bool

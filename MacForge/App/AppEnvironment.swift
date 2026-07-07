@@ -22,9 +22,9 @@ enum FileRuleOperationResult<T> {
 }
 
 struct MacForgeBuildInfo: Hashable {
-    static let branch = "v0.26.3-real-notch-visual-fix"
-    static let label = "v0.26.3-real-notch-visual-fix"
-    static let buildDate = "2026-06-09"
+    static let branch = "v0.27-dynamic-notch-island"
+    static let label = "v0.27-dynamic-notch-island"
+    static let buildDate = "2026-07-07"
 
     var bundlePath: String {
         Bundle.main.bundleURL.path
@@ -155,6 +155,12 @@ final class AppEnvironment: ObservableObject {
             loadedNotchConfig.forceAttachedNotchTestMode = true
             loadedNotchConfig.showPlacementDebugOverlay = true
             loadedNotchConfig.presentationState = forceExpandedVisualTest ? .expanded : .collapsed
+        } else if loadedNotchConfig.forceAttachedNotchTestMode {
+            // A previous QA launch persisted the forced test flags; clear them
+            // so normal launches get Live Island providers back.
+            loadedNotchConfig.forceAttachedNotchTestMode = false
+            loadedNotchConfig.showPlacementDebugOverlay = false
+            loadedNotchConfig.presentationState = .collapsed
         }
         let repairedAttachedNotchLayout = loadedNotchConfig.repairAttachedNotchLayoutIfNeeded()
         notchConfig = loadedNotchConfig
@@ -187,7 +193,7 @@ final class AppEnvironment: ObservableObject {
         startCommandBusObservation()
         updateShelfAndPersist()
         if repairedAttachedNotchLayout {
-            append(.success("Notch Island", "Notch Island layout repaired for v0.26.3."))
+            append(.success("Notch Island", "Notch Island layout upgraded to the attached Dynamic Island engine."))
         }
         if forceVisualTest {
             append(.success("Visual QA", "Running \(MacForgeBuildInfo.label) with forced attached notch test mode."))
@@ -227,11 +233,17 @@ final class AppEnvironment: ObservableObject {
     func expandNotchIsland() {
         guard !notchConfig.calibrationModeEnabled else { return }
         notchIslandActivityCenter.expand()
+        // Keep the hover state machine in sync with a programmatic expand so a
+        // later hover doesn't find it stuck in a stale state.
+        applyHoverActions(hoverStateMachine.holdExpanded(), event: "expand requested")
     }
 
     func collapseNotchIsland() {
         guard !notchConfig.calibrationModeEnabled else { return }
         notchIslandActivityCenter.collapse()
+        // Any explicit collapse (chevron, swipe, Settings, activity expiry)
+        // resets hover intent so hover-to-expand works again immediately.
+        resetHoverState()
     }
 
     func resetNotchIslandLayout() {
@@ -313,17 +325,17 @@ final class AppEnvironment: ObservableObject {
     }
 
     func copyNotchGeometryDebugInfo() {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        // Report the same screen the island actually attaches to (the built-in
+        // notched display), not merely NSScreen.main, so diagnostics match what
+        // the user sees on multi-display setups.
+        guard let screen = NotchShelfWindowController.islandScreen() else {
             append(.failure("Notch Geometry", "No screen was available for geometry diagnostics."))
             return
         }
 
         let service = NotchGeometryService()
         let metrics = service.metrics(for: screen)
-        let geometry = service.attachmentGeometry(metrics: metrics, config: notchConfig)
-        let collapsedLayout = service.panelLayout(for: .collapsed, geometry: geometry, config: notchConfig)
-        let compactLayout = service.panelLayout(for: .compact, geometry: geometry, config: notchConfig)
-        let expandedLayout = service.panelLayout(for: .expanded, geometry: geometry, config: notchConfig)
+        let layout = service.islandLayout(metrics: metrics, config: notchConfig)
         let panelFrame = notchShelfWindowController.currentPanelFrame
         let mouseLocation = NSEvent.mouseLocation
         let lines = [
@@ -333,44 +345,36 @@ final class AppEnvironment: ObservableObject {
             "bundlePath: \(buildInfo.bundlePath)",
             "configPath: \(configurationPath)",
             "screenID: \(metrics.screenID)",
-            "NSScreen.main.frame: \(format(screen.frame))",
-            "NSScreen.main.visibleFrame: \(format(screen.visibleFrame))",
-            "NSScreen.main.safeAreaInsets: top \(screen.safeAreaInsets.top), left \(screen.safeAreaInsets.left), bottom \(screen.safeAreaInsets.bottom), right \(screen.safeAreaInsets.right)",
-            "NSScreen.main.auxiliaryTopLeftArea: \(screen.auxiliaryTopLeftArea.map { format($0) } ?? "nil")",
-            "NSScreen.main.auxiliaryTopRightArea: \(screen.auxiliaryTopRightArea.map { format($0) } ?? "nil")",
+            "islandScreen.frame: \(format(screen.frame))",
+            "islandScreen.visibleFrame: \(format(screen.visibleFrame))",
+            "islandScreen.safeAreaInsets: top \(screen.safeAreaInsets.top), left \(screen.safeAreaInsets.left), bottom \(screen.safeAreaInsets.bottom), right \(screen.safeAreaInsets.right)",
+            "islandScreen.auxiliaryTopLeftArea: \(screen.auxiliaryTopLeftArea.map { format($0) } ?? "nil")",
+            "islandScreen.auxiliaryTopRightArea: \(screen.auxiliaryTopRightArea.map { format($0) } ?? "nil")",
             "backingScaleFactor: \(screen.backingScaleFactor)",
-            "cameraGapFrame: \(format(geometry.cameraGapFrame.rect))",
-            "attachedShellFrame: \(format(geometry.attachedShellFrame.rect))",
-            "collapsedContentFrame: \(format(geometry.collapsedContentFrame.rect))",
-            "compactContentFrame: \(format(geometry.compactContentFrame.rect))",
-            "expandedContentFrame: \(format(geometry.expandedContentFrame.rect))",
-            "collapsedPanelFrame: \(format(collapsedLayout.panelFrame.rect))",
-            "compactPanelFrame: \(format(compactLayout.panelFrame.rect))",
-            "expandedPanelFrame: \(format(expandedLayout.panelFrame.rect))",
-            "collapsedShellInPanel: \(format(collapsedLayout.shellFrameInPanelCoordinates.rect))",
-            "collapsedContentInPanel: \(format(collapsedLayout.contentFrameInPanelCoordinates.rect))",
+            "hasPhysicalNotch: \(layout.hasPhysicalNotch)",
+            "notchFrame: \(format(layout.notchFrame.rect))",
+            "collapsedShapeSize: \(Int(layout.collapsedSize.width)) x \(Int(layout.collapsedSize.height))",
+            "compactShapeSize: \(Int(layout.compactSize.width)) x \(Int(layout.compactSize.height))",
+            "expandedShapeSize: \(Int(layout.expandedSize.width)) x \(Int(layout.expandedSize.height))",
+            "collapsedPanelFrame: \(format(layout.panelFrame(for: .collapsed)))",
+            "compactPanelFrame: \(format(layout.panelFrame(for: .compact)))",
+            "expandedPanelFrame: \(format(layout.panelFrame(for: .expanded)))",
             "currentNSPanelFrame: \(panelFrame.map(format) ?? "none")",
             "currentNSWindowLevel: \(notchShelfWindowController.currentWindowLevelDescription)",
             "mouseLocation: \(formatPoint(mouseLocation))",
-            "placementNudgeY: \(notchConfig.islandVerticalOffset)",
-            "placementNudgeX: \(notchConfig.islandHorizontalOffset)",
-            "attachedShellHeight: \(notchConfig.attachedShellHeight)",
-            "overlayMenuBarForAttachedNotch: \(notchConfig.overlayMenuBarForAttachedNotch)",
-            "allowNotchIslandAboveMenuBar: \(notchConfig.allowNotchIslandAboveMenuBar)",
-            "calibrationModeEnabled: \(notchConfig.calibrationModeEnabled)",
-            "forceAttachedNotchTestMode: \(notchConfig.forceAttachedNotchTestMode)",
+            "presentationState: \(notchIslandActivityCenter.presentationState.rawValue)",
             "hoverState: \(notchHoverState.rawValue)",
             "hoverDiagnostics: \(notchHoverDiagnostics.joined(separator: " | "))",
             "classicShelfEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .classicShelf)",
             "notchIslandModeEnabled: \(notchConfig.enabled && notchConfig.preferredStyle == .island)",
-            "fallbackReason: \(geometry.fallbackReason ?? "none")"
+            "fallbackReason: \(layout.fallbackReason ?? "none")"
         ]
         let text = lines.joined(separator: "\n")
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         append(.success("Notch Geometry", "Copied Notch Island geometry debug info.", details: [
-            "Shell: \(format(geometry.attachedShellFrame.rect))",
+            "Notch: \(format(layout.notchFrame.rect))",
             "Panel: \(panelFrame.map(format) ?? "none")",
             "Level: \(notchShelfWindowController.currentWindowLevelDescription)"
         ]))
@@ -896,7 +900,7 @@ final class AppEnvironment: ObservableObject {
             case .scheduleExpand:
                 hoverExpandTask?.cancel()
                 hoverExpandTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 160_000_000)
+                    try? await Task.sleep(nanoseconds: 120_000_000)
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         self?.handleHoverExpandDelayElapsed()
@@ -905,7 +909,7 @@ final class AppEnvironment: ObservableObject {
             case .scheduleCollapse:
                 hoverCollapseTask?.cancel()
                 hoverCollapseTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    try? await Task.sleep(nanoseconds: 400_000_000)
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         self?.handleHoverCollapseDelayElapsed()
@@ -1182,11 +1186,5 @@ enum FolderTemplate: String, CaseIterable, Identifiable {
         case .coding:
             ["Sources", "Tests", "Docs", "Design"]
         }
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }

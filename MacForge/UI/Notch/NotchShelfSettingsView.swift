@@ -17,13 +17,15 @@ struct NotchShelfSettingsView: View {
                         Text(style.label).tag(style)
                     }
                 }
-                slider("Opacity", value: $environment.notchConfig.opacity, range: 0.45...1.0, step: 0.05, suffix: "%") {
-                    Int(environment.notchConfig.opacity * 100)
+                if environment.notchConfig.preferredStyle == .classicShelf {
+                    slider("Opacity", value: $environment.notchConfig.opacity, range: 0.45...1.0, step: 0.05, suffix: "%") {
+                        Int(environment.notchConfig.opacity * 100)
+                    }
                 }
             } header: {
                 Text("Shelf")
             } footer: {
-                Text("MacForge uses public screen safe-area and auxiliary top-area geometry. It cannot draw inside pixels hidden by the physical camera cutout.")
+                Text("The island measures the camera cutout from public screen geometry and attaches to it. It cannot draw inside pixels hidden by the physical camera cutout.")
             }
 
             if environment.notchConfig.preferredStyle == .island {
@@ -65,9 +67,6 @@ struct NotchShelfSettingsView: View {
                 }
                 Toggle("Expand on hover", isOn: $environment.notchConfig.expandOnHover)
                 Toggle("Expand on click", isOn: $environment.notchConfig.expandOnClick)
-                Toggle("Main display only", isOn: $environment.notchConfig.mainDisplayOnly)
-                Toggle("Overlay menu bar area for attached notch", isOn: $environment.notchConfig.overlayMenuBarForAttachedNotch)
-                Toggle("Allow Notch Island above menu bar", isOn: $environment.notchConfig.allowNotchIslandAboveMenuBar)
                 Toggle("Show placement debug overlay", isOn: $environment.notchConfig.showPlacementDebugOverlay)
                 HStack {
                     Slider(value: $environment.notchConfig.autoCollapseDelay, in: 1...10, step: 0.5) {
@@ -76,82 +75,32 @@ struct NotchShelfSettingsView: View {
                     Text("\(environment.notchConfig.autoCollapseDelay, specifier: "%.1f") s")
                         .frame(width: 70, alignment: .trailing)
                 }
-                Toggle("Click-through mode", isOn: $environment.notchConfig.ignoreMouseEventsWhenInactive)
-                if environment.notchConfig.ignoreMouseEventsWhenInactive {
-                    Label("Buttons may not be clickable while click-through mode is enabled.", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
             }
 
             liveIslandSourceSection
 
-            Section("Placement") {
-                Toggle("Enable Calibration Mode", isOn: $environment.notchConfig.calibrationModeEnabled)
-                Toggle("Force Attached Notch Test Mode", isOn: Binding(
-                    get: { environment.notchConfig.forceAttachedNotchTestMode },
-                    set: { environment.setForceAttachedNotchTestMode($0) }
-                ))
-                slider("Vertical attach offset", value: $environment.notchConfig.islandVerticalOffset, range: -120...120, step: 1, suffix: "px") {
-                    Int(environment.notchConfig.islandVerticalOffset)
-                }
-                slider("Horizontal offset", value: $environment.notchConfig.islandHorizontalOffset, range: -160...160, step: 1, suffix: "px") {
-                    Int(environment.notchConfig.islandHorizontalOffset)
-                }
-                slider("Shell height", value: $environment.notchConfig.attachedShellHeight, range: 20...110, step: 1, suffix: "px") {
-                    Int(environment.notchConfig.attachedShellHeight)
-                }
-                HStack {
-                    Button("Save Calibration", systemImage: "checkmark.circle") {
-                        environment.saveNotchCalibration()
-                    }
-                    .disabled(!environment.notchConfig.calibrationModeEnabled)
-                    Button("Reset Calibration", systemImage: "location.slash") {
-                        environment.resetNotchCalibration()
-                    }
-                }
-                HStack {
-                    Button("Snap to Detected Notch", systemImage: "scope") {
-                        environment.snapNotchIslandToDetectedNotch()
-                    }
-                    Button("Reset to Attached Defaults", systemImage: "arrow.counterclockwise") {
-                        environment.resetNotchIslandLayout()
-                    }
-                }
-                HStack {
-                    Button("Repair Notch Island Layout", systemImage: "wrench.and.screwdriver") {
-                        environment.repairNotchIslandLayout()
-                    }
-                    Button("Hard Reset Notch Island Visual State", systemImage: "exclamationmark.arrow.triangle.2.circlepath", role: .destructive) {
-                        environment.hardResetNotchIslandVisualState()
-                    }
-                }
-                HStack {
-                    Button("Copy Notch Geometry Debug Info", systemImage: "doc.on.doc") {
-                        environment.copyNotchGeometryDebugInfo()
-                    }
-                }
-            }
-
-            Section("Island Size") {
-                slider("Collapsed width", value: $environment.notchConfig.collapsedWidth, range: 140...280, step: 2, suffix: "px") {
-                    Int(environment.notchConfig.collapsedWidth)
-                }
-                slider("Collapsed height", value: $environment.notchConfig.collapsedHeight, range: 30...44, step: 1, suffix: "px") {
-                    Int(environment.notchConfig.collapsedHeight)
-                }
-                slider("Compact width", value: $environment.notchConfig.compactWidth, range: 260...420, step: 4, suffix: "px") {
-                    Int(environment.notchConfig.compactWidth)
-                }
+            Section {
                 slider("Expanded width", value: $environment.notchConfig.expandedWidth, range: 480...680, step: 10, suffix: "px") {
                     Int(environment.notchConfig.expandedWidth)
                 }
                 slider("Expanded height", value: $environment.notchConfig.expandedHeight, range: 280...460, step: 10, suffix: "px") {
                     Int(environment.notchConfig.expandedHeight)
                 }
-                Button("Reset Island Layout", systemImage: "arrow.counterclockwise") {
-                    environment.resetNotchIslandLayout()
+                slider("Virtual notch offset", value: $environment.notchConfig.islandHorizontalOffset, range: -160...160, step: 1, suffix: "px") {
+                    Int(environment.notchConfig.islandHorizontalOffset)
                 }
+                HStack {
+                    Button("Reset Island Layout", systemImage: "arrow.counterclockwise") {
+                        environment.resetNotchIslandLayout()
+                    }
+                    Button("Copy Notch Geometry Debug Info", systemImage: "doc.on.doc") {
+                        environment.copyNotchGeometryDebugInfo()
+                    }
+                }
+            } header: {
+                Text("Island Size")
+            } footer: {
+                Text("Collapsed and compact sizes are measured from the physical notch automatically. The virtual notch offset only applies to displays without a camera cutout.")
             }
 
             widgetSection
@@ -289,7 +238,7 @@ struct NotchShelfSettingsView: View {
             LabeledContent("Panel", value: environment.notchShelfWindowController.currentPanelFrame.map { format($0) } ?? "none")
             LabeledContent("Level", value: environment.notchShelfWindowController.currentWindowLevelDescription)
             LabeledContent("Hover", value: environment.notchHoverState.rawValue)
-            LabeledContent("Offsets", value: "x \(Int(environment.notchConfig.islandHorizontalOffset)), y \(Int(environment.notchConfig.islandVerticalOffset))")
+            LabeledContent("Virtual notch offset", value: "x \(Int(environment.notchConfig.islandHorizontalOffset))")
             if !environment.notchHoverDiagnostics.isEmpty {
                 Text(environment.notchHoverDiagnostics.joined(separator: "\n"))
                     .font(.caption2.monospaced())

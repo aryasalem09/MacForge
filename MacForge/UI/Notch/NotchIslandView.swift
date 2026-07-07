@@ -1,136 +1,180 @@
 import SwiftUI
 
-struct AttachedNotchShellShape: Shape {
-    var cornerRadius: CGFloat
+/// The island silhouette: flat top edge flush with the screen, top corners
+/// flaring outward the way the physical notch meets the bezel, and rounded
+/// bottom corners. Both radii animate so the shape can morph between states.
+struct NotchShape: Shape {
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(topRadius, bottomRadius) }
+        set {
+            topRadius = newValue.first
+            bottomRadius = newValue.second
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
-        let radius = min(cornerRadius, rect.width / 2, rect.height)
+        let topR = min(topRadius, rect.width / 4, rect.height / 2)
+        let bottomR = min(bottomRadius, rect.width / 2 - topR, rect.height - topR)
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
         path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
-            control: CGPoint(x: rect.maxX, y: rect.maxY)
+            to: CGPoint(x: rect.minX + topR, y: rect.minY + topR),
+            control: CGPoint(x: rect.minX + topR, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + topR, y: rect.maxY - bottomR))
         path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
-            control: CGPoint(x: rect.minX, y: rect.maxY)
+            to: CGPoint(x: rect.minX + topR + bottomR, y: rect.maxY),
+            control: CGPoint(x: rect.minX + topR, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - topR - bottomR, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - topR, y: rect.maxY - bottomR),
+            control: CGPoint(x: rect.maxX - topR, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY + topR))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY),
+            control: CGPoint(x: rect.maxX - topR, y: rect.minY)
         )
         path.closeSubpath()
         return path
     }
 }
 
-struct NotchIslandShellBackground: View {
-    var cornerRadius: CGFloat
-    var materialStyle: NotchIslandMaterialStyle
-
-    var body: some View {
-        AttachedNotchShellShape(cornerRadius: cornerRadius)
-            .fill(backgroundFill)
-            .overlay {
-                AttachedNotchShellShape(cornerRadius: cornerRadius)
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.26), radius: 10, x: 0, y: 5)
-    }
-
-    private var backgroundFill: AnyShapeStyle {
-        switch materialStyle {
-        case .dark:
-            AnyShapeStyle(Color.black.opacity(0.96))
-        case .glass:
-            AnyShapeStyle(.ultraThinMaterial)
-        }
-    }
-}
-
-extension NotchShelfConfig {
-    var attachedContentTopPadding: CGFloat {
-        guard overlayMenuBarForAttachedNotch else { return 0 }
-        return CGFloat((attachedShellHeight - compactHeight).clamped(to: 0...44))
-    }
-}
-
-struct NotchIslandView: View {
+/// Root of the island panel. The window stays put; this view morphs the
+/// island shape between collapsed, compact, and expanded with a spring, the
+/// same way the iPhone's Dynamic Island grows out of its cutout.
+struct NotchIslandRootView: View {
+    @ObservedObject var model: NotchIslandLayoutModel
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
-    @State private var dragStartX: Double = 0
-    @State private var dragStartY: Double = 0
-    @State private var calibrationDragActive = false
+
+    private var state: NotchIslandPresentationState { model.displayState }
+
+    private var isCollapsed: Bool {
+        state == .collapsed || state == .hidden
+    }
+
+    private var hoverScale: CGFloat {
+        isCollapsed && environment.notchHoverState == .hoverPending ? 1.05 : 1.0
+    }
+
+    private var bottomRadius: CGFloat {
+        switch state {
+        case .hidden, .collapsed: 9
+        case .compact: 13
+        case .expanded: 24
+        }
+    }
 
     var body: some View {
-        Group {
-            switch activityCenter.presentationState {
-            case .hidden, .collapsed:
-                NotchIslandCollapsedView()
-            case .compact:
-                NotchIslandCompactView()
-            case .expanded:
-                NotchIslandExpandedView()
+        ZStack(alignment: .top) {
+            if let layout = model.layout {
+                island(layout: layout)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .bottom) {
-            if environment.notchConfig.showPlacementDebugOverlay {
-                Text(debugOverlayText)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(0.74))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.black.opacity(0.72), in: Capsule())
-                    .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func island(layout: NotchIslandLayout) -> some View {
+        let size = layout.shapeSize(for: state)
+        let topRadius = CGFloat(NotchIslandLayout.topCornerFlare)
+        let shape = NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
+
+        return ZStack(alignment: .top) {
+            content(layout: layout)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(shape.fill(islandFill))
+        .clipShape(shape)
+        .overlay {
+            if !isCollapsed {
+                shape.stroke(.white.opacity(0.08), lineWidth: 1)
             }
         }
-        .contentShape(Rectangle())
+        .compositingGroup()
+        .shadow(
+            color: .black.opacity(isCollapsed ? 0 : 0.5),
+            radius: isCollapsed ? 0 : 14,
+            x: 0,
+            y: 5
+        )
+        .scaleEffect(hoverScale, anchor: .top)
+        .contentShape(shape)
         .onTapGesture {
             environment.toggleNotchIslandExpansionByClick()
         }
-        .onHover { isHovering in
-            environment.handleNotchHoverChanged(isHovering)
-        }
-        .gesture(
-            DragGesture(minimumDistance: 14)
-                .onChanged { value in
-                    if environment.notchConfig.calibrationModeEnabled {
-                        if !calibrationDragActive {
-                            calibrationDragActive = true
-                            dragStartX = environment.notchConfig.islandHorizontalOffset
-                            dragStartY = environment.notchConfig.islandVerticalOffset
-                            environment.beginNotchCalibrationDrag()
-                        }
-                        environment.updateNotchCalibrationDrag(
-                            startX: dragStartX,
-                            startY: dragStartY,
-                            translation: value.translation
-                        )
-                    }
-                }
-                .onEnded { value in
-                    if environment.notchConfig.calibrationModeEnabled {
-                        calibrationDragActive = false
-                        environment.endNotchCalibrationDrag()
-                        return
-                    }
-                    handleSwipe(value.translation)
-                }
-        )
+        .gesture(swipeGesture)
         .onExitCommand {
             activityCenter.collapse()
         }
+        .overlay(alignment: .bottom) {
+            if environment.notchConfig.showPlacementDebugOverlay {
+                debugOverlay(layout: layout)
+            }
+        }
+        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: state)
+        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: hoverScale)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Notch Island")
+    }
+
+    private var islandFill: AnyShapeStyle {
+        if isCollapsed {
+            // Pure black so the collapsed shape is indistinguishable from the
+            // physical camera housing it sits on.
+            return AnyShapeStyle(Color.black)
+        }
+        switch environment.notchConfig.materialStyle {
+        case .dark:
+            return AnyShapeStyle(Color.black)
+        case .glass:
+            return AnyShapeStyle(.ultraThinMaterial)
+        }
+    }
+
+    @ViewBuilder
+    private func content(layout: NotchIslandLayout) -> some View {
+        switch state {
+        case .hidden, .collapsed:
+            Color.clear
+        case .compact:
+            NotchIslandCompactView(layout: layout)
+                .transition(contentTransition)
+        case .expanded:
+            NotchIslandExpandedView(topContentInset: layout.notchFrame.rect.height)
+                .transition(contentTransition)
+        }
+    }
+
+    /// Content fades in slightly after the shape starts growing and vanishes
+    /// immediately when it shrinks, so text never overflows the island.
+    private var contentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity
+                .combined(with: .scale(scale: 0.92, anchor: .top))
+                .animation(.easeOut(duration: 0.22).delay(0.08)),
+            removal: .opacity.animation(.easeIn(duration: 0.08))
+        )
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 14)
+            .onEnded { value in
+                handleSwipe(value.translation)
+            }
     }
 
     private func handleSwipe(_ translation: CGSize) {
         if abs(translation.height) > abs(translation.width) {
             if translation.height > 10 {
-                activityCenter.expand()
+                environment.expandNotchIsland()
             } else if translation.height < -10 {
-                activityCenter.collapse()
+                environment.collapseNotchIsland()
             }
             return
         }
@@ -154,15 +198,14 @@ struct NotchIslandView: View {
         }
     }
 
-    private var debugOverlayText: String {
-        let config = environment.notchConfig
-        let snapshot = liveIslandCoordinator.currentSnapshot
-        return "\(MacForgeBuildInfo.label) | state \(activityCenter.presentationState.rawValue) | hover \(environment.notchHoverState.rawValue) | \(snapshot.kind.rawValue) | shell \(Int(config.attachedShellHeight)) | x \(Int(config.islandHorizontalOffset)) | y \(Int(config.islandVerticalOffset))"
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
+    private func debugOverlay(layout: NotchIslandLayout) -> some View {
+        let notch = layout.notchFrame.rect
+        return Text("\(MacForgeBuildInfo.label) | \(state.rawValue) | hover \(environment.notchHoverState.rawValue) | notch \(Int(notch.width))x\(Int(notch.height))\(layout.hasPhysicalNotch ? "" : " (virtual)")")
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white.opacity(0.74))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.72), in: Capsule())
+            .padding(.bottom, 4)
     }
 }

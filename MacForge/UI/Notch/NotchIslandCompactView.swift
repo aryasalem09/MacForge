@@ -1,92 +1,102 @@
 import AppKit
 import SwiftUI
 
+/// Compact live-activity presentation: content lives in the "ears" on either
+/// side of the physical notch, exactly like the iPhone's Dynamic Island
+/// compact layout. The center band stays empty because the camera housing
+/// covers it.
 struct NotchIslandCompactView: View {
+    var layout: NotchIslandLayout
+
     @EnvironmentObject private var environment: AppEnvironment
+    @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
+
+    private var earWidth: CGFloat {
+        CGFloat(NotchIslandLayout.compactEarWidth)
+    }
 
     var body: some View {
         let snapshot = liveIslandCoordinator.currentSnapshot
+        let activity = activityCenter.currentActivity
 
-        HStack(spacing: 10) {
-            if snapshot.kind == .idle {
-                Spacer(minLength: 0)
-            } else {
-                LiveIslandIconView(snapshot: snapshot, size: 28)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(snapshot.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text(snapshot.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(1)
-
-                    if let progress = snapshot.progress {
-                        ProgressView(value: progress)
-                            .progressViewStyle(.linear)
-                            .controlSize(.mini)
-                            .tint(snapshot.isError ? .orange : .mint)
-                    } else if snapshot.kind == .download {
-                        ProgressView()
-                            .progressViewStyle(.linear)
-                            .controlSize(.mini)
-                            .tint(.mint)
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                if !snapshot.actions.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(snapshot.actions.prefix(3)) { action in
-                            Button {
-                                perform(action)
-                            } label: {
-                                Image(systemName: playbackSymbol(for: action, snapshot: snapshot))
-                                    .frame(width: 22, height: 22)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white.opacity(action.isEnabled ? 0.88 : 0.34))
-                            .disabled(!action.isEnabled)
-                            .help(action.title)
-                            .accessibilityLabel(action.title)
-                        }
-                    }
-                }
-            }
+        HStack(spacing: 0) {
+            leftEar(snapshot: snapshot, activity: activity)
+                .frame(width: earWidth, alignment: .center)
+            Spacer(minLength: 0)
+            rightEar(snapshot: snapshot, activity: activity)
+                .frame(width: earWidth, alignment: .center)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, environment.notchConfig.attachedContentTopPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            NotchIslandShellBackground(
-                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
-                materialStyle: environment.notchConfig.materialStyle
-            )
-        }
-        .accessibilityLabel(snapshot.kind == .idle ? "Compact Notch Island" : snapshot.title)
+        .accessibilityLabel(accessibilityText(snapshot: snapshot, activity: activity))
     }
 
-    private func perform(_ action: LiveIslandAction) {
-        Task {
-            let result = await liveIslandCoordinator.performCurrentAction(action.kind)
-            if !result.success {
-                environment.append(result)
+    @ViewBuilder
+    private func leftEar(snapshot: LiveIslandSnapshot, activity: NotchIslandActivity?) -> some View {
+        if snapshot.kind != .idle {
+            LiveIslandIconView(snapshot: snapshot, size: iconSize)
+        } else if let activity {
+            Image(systemName: activity.symbolName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(activity.isError ? .orange : .mint)
+        }
+    }
+
+    @ViewBuilder
+    private func rightEar(snapshot: LiveIslandSnapshot, activity: NotchIslandActivity?) -> some View {
+        switch snapshot.kind {
+        case .music, .video, .browserMedia, .genericMedia:
+            NotchAudioBarsView(
+                isAnimating: snapshot.playbackState.isPlaying,
+                tint: snapshot.isError ? .orange : .mint
+            )
+        case .timer:
+            Text(snapshot.subtitle.isEmpty ? snapshot.title : snapshot.subtitle)
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.mint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 2)
+        case .download, .task:
+            miniProgress(snapshot.progress, isError: snapshot.isError)
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+        case .idle:
+            if let activity {
+                miniProgress(activity.progress, isError: activity.isError)
             }
         }
     }
 
-    private func playbackSymbol(for action: LiveIslandAction, snapshot: LiveIslandSnapshot) -> String {
-        if action.kind == .playPause, snapshot.playbackState == .playing {
-            return "pause.fill"
+    @ViewBuilder
+    private func miniProgress(_ progress: Double?, isError: Bool) -> some View {
+        if let progress {
+            ProgressView(value: progress.clamped(to: 0...1))
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+                .tint(isError ? .orange : .mint)
+        } else {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+                .tint(isError ? .orange : .mint)
         }
-        if action.kind == .playPause {
-            return "play.fill"
+    }
+
+    private var iconSize: CGFloat {
+        max(CGFloat(layout.compactSize.height) - 14, 18)
+    }
+
+    private func accessibilityText(snapshot: LiveIslandSnapshot, activity: NotchIslandActivity?) -> String {
+        if snapshot.kind != .idle {
+            return "\(snapshot.title), \(snapshot.subtitle)"
         }
-        return action.symbolName
+        if let activity {
+            return "\(activity.title), \(activity.message)"
+        }
+        return "Compact Notch Island"
     }
 }
 
@@ -103,13 +113,13 @@ struct LiveIslandIconView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
             } else {
                 Image(systemName: snapshot.symbolName)
                     .font(.system(size: max(size * 0.52, 12), weight: .semibold))
                     .foregroundStyle(snapshot.isError ? .orange : .mint)
                     .frame(width: size, height: size)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: size * 0.24))
             }
         }
     }

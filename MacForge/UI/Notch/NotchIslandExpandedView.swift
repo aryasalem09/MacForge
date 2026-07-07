@@ -1,7 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Expanded island content. The root view draws the island shape; this view
+/// only lays out the shelf content, starting below the physical notch band.
 struct NotchIslandExpandedView: View {
+    var topContentInset: CGFloat
+
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
@@ -9,77 +13,42 @@ struct NotchIslandExpandedView: View {
     var body: some View {
         let snapshot = liveIslandCoordinator.currentSnapshot
 
-        VStack(alignment: .leading, spacing: 12) {
-            if environment.notchConfig.forceAttachedNotchTestMode {
-                forceTestContent
-            } else {
-            HStack {
-                Spacer()
-                Button {
-                    activityCenter.collapse()
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .frame(width: 24, height: 22)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Spacer()
+                    Button {
+                        environment.collapseNotchIsland()
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .frame(width: 24, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .help("Collapse")
+                    .accessibilityLabel("Collapse Notch Island")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.78))
-                .help("Collapse")
-                .accessibilityLabel("Collapse Notch Island")
-            }
 
-            liveSnapshotCard(snapshot)
+                liveSnapshotCard(snapshot)
 
-            if environment.notchConfig.showCurrentApp {
-                Label(NSWorkspace.shared.frontmostApplication?.localizedName ?? "No App", systemImage: "app.dashed")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
-            }
+                if environment.notchConfig.showCurrentApp {
+                    Label(NSWorkspace.shared.frontmostApplication?.localizedName ?? "No App", systemImage: "app.dashed")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                }
 
-            NotchIslandControlsView()
+                NotchIslandControlsView()
 
-            if environment.notchConfig.showRecentResults {
-                recentResults
+                if environment.notchConfig.showRecentResults {
+                    recentResults
+                }
             }
-            }
+            .padding(14)
         }
-        .padding(14)
-        .padding(.top, environment.notchConfig.attachedContentTopPadding)
+        .padding(.top, topContentInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            NotchIslandShellBackground(
-                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
-                materialStyle: environment.notchConfig.materialStyle
-            )
-        }
         .accessibilityLabel("Expanded Notch Island")
-    }
-
-    private var forceTestContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Attached Notch Test")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.72))
-                Spacer()
-                Button {
-                    activityCenter.collapse()
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .frame(width: 24, height: 22)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.78))
-                .help("Collapse")
-            }
-
-            Text(MacForgeBuildInfo.label)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(0.58))
-            Text("x \(Int(environment.notchConfig.islandHorizontalOffset)), y \(Int(environment.notchConfig.islandVerticalOffset)), shell \(Int(environment.notchConfig.attachedShellHeight))")
-                .font(.caption2.monospaced())
-                .foregroundStyle(.white.opacity(0.58))
-        }
     }
 
     private func liveSnapshotCard(_ snapshot: LiveIslandSnapshot) -> some View {
@@ -205,5 +174,4 @@ struct NotchIslandExpandedView: View {
             }
         }
     }
-
 }

@@ -47,7 +47,11 @@ final class NotchIslandActivityCenter: ObservableObject {
         currentActivity = activity
         recentActivities.insert(activity, at: 0)
         recentActivities = Array(recentActivities.prefix(12))
-        presentationState = .compact
+        // A new activity surfaces the compact presentation, but never shrinks
+        // an island the user already has expanded.
+        if presentationState != .expanded {
+            presentationState = .compact
+        }
     }
 
     func showCommandResult(_ result: CommandResult, autoCollapseDelay: TimeInterval) {

@@ -1,34 +1,34 @@
 import SwiftUI
 
-struct NotchIslandCollapsedView: View {
-    @EnvironmentObject private var environment: AppEnvironment
-    @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
+/// Animated audio-visualizer bars shown in the island's right ear while
+/// media is playing, matching the iPhone Dynamic Island's waveform.
+struct NotchAudioBarsView: View {
+    var isAnimating: Bool
+    var tint: Color = .mint
+
+    private let barCount = 4
+    private let idleHeight: CGFloat = 4
 
     var body: some View {
-        HStack(spacing: 8) {
-            if liveIslandCoordinator.currentSnapshot.kind != .idle {
-                Image(systemName: liveIslandCoordinator.currentSnapshot.symbolName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(liveIslandCoordinator.currentSnapshot.isError ? .orange : .white.opacity(0.92))
-
-                if let progress = liveIslandCoordinator.currentSnapshot.progress {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
-                        .controlSize(.mini)
-                        .tint(liveIslandCoordinator.currentSnapshot.isError ? .orange : .mint)
-                        .frame(width: 42)
+        TimelineView(.animation(minimumInterval: 1.0 / 14.0, paused: !isAnimating)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2.5) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: 3, height: barHeight(time: time, index: index))
                 }
             }
+            .frame(height: 16, alignment: .center)
         }
-        .padding(.horizontal, 13)
-        .padding(.top, environment.notchConfig.attachedContentTopPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            NotchIslandShellBackground(
-                cornerRadius: CGFloat(environment.notchConfig.cornerRadius),
-                materialStyle: environment.notchConfig.materialStyle
-            )
-        }
-        .accessibilityLabel("Collapsed Notch Island")
+        .animation(.easeOut(duration: 0.2), value: isAnimating)
+        .accessibilityLabel(isAnimating ? "Audio playing" : "Audio paused")
+    }
+
+    private func barHeight(time: TimeInterval, index: Int) -> CGFloat {
+        guard isAnimating else { return idleHeight }
+        let phase = time * (4.6 + Double(index) * 1.9) + Double(index) * 1.4
+        let normalized = (sin(phase) + 1) / 2
+        return idleHeight + CGFloat(normalized) * 12
     }
 }

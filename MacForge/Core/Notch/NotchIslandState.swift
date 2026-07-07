@@ -136,6 +136,15 @@ struct NotchHoverStateMachine: Hashable {
         return [.cancelExpand, .cancelCollapse, .expand]
     }
 
+    /// Force the machine into a held-open state to match a programmatic
+    /// expand (swipe, chevron, Settings, App Intent). Behaves like a
+    /// click-expand: it stays open on pointer exit until an explicit collapse.
+    mutating func holdExpanded() -> [NotchHoverAction] {
+        state = .expandedByClick
+        pointerInside = true
+        return [.cancelExpand, .cancelCollapse]
+    }
+
     mutating func beginCalibrationDrag() -> [NotchHoverAction] {
         state = .draggingCalibration
         pointerInside = true

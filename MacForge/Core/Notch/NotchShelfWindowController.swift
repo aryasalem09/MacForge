@@ -1,12 +1,32 @@
 import AppKit
-import QuartzCore
 import SwiftUI
+
+/// Published bridge between the window controller and the island's SwiftUI
+/// content. The controller resizes the panel first, then flips `displayState`
+/// so the shape morph always animates inside a window big enough to hold it.
+@MainActor
+final class NotchIslandLayoutModel: ObservableObject {
+    @Published var layout: NotchIslandLayout?
+    @Published var displayState: NotchIslandPresentationState = .collapsed
+}
 
 @MainActor
 final class NotchShelfWindowController {
+    /// How long the SwiftUI spring needs before the panel can safely shrink
+    /// down to the target frame without clipping the morph animation.
+    private static let shrinkDelay: TimeInterval = 0.6
+
     private var panel: NotchShelfPanel?
+    private var activeStyle: NotchShelfPreferredStyle?
+    private let layoutModel = NotchIslandLayoutModel()
     private let notchDetectionService = NotchDetectionService()
     private let notchGeometryService = NotchGeometryService()
+    private var pendingShrink: DispatchWorkItem?
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var hoverPollTimer: Timer?
+    private var pointerInsideIsland = false
+    private weak var hoverEnvironment: AppEnvironment?
 
     var isVisible: Bool {
         panel?.isVisible == true
@@ -16,42 +36,24 @@ final class NotchShelfWindowController {
         panel?.frame
     }
 
+    var currentIslandLayout: NotchIslandLayout? {
+        layoutModel.layout
+    }
+
     var currentWindowLevelDescription: String {
         guard let panel else { return "none" }
         if panel.level == .statusBar {
             return "statusBar (\(panel.level.rawValue))"
         }
-        if panel.level == .popUpMenu {
-            return "popUpMenu (\(panel.level.rawValue))"
-        }
         return "\(panel.level.rawValue)"
     }
 
-    func show(config: NotchShelfConfig, environment: AppEnvironment) {
-        let targetFrame = frame(for: config, environment: environment)
-        let hadPanel = panel != nil
-        if panel == nil {
-            panel = NotchShelfPanel(contentRect: targetFrame, config: config)
-        }
-
-        panel?.alphaValue = config.opacity
-        panel?.ignoresMouseEvents = config.ignoreMouseEventsWhenInactive
-        panel?.level = windowLevel(for: config)
-        panel?.contentView = NSHostingView(rootView: rootView(config: config, environment: environment))
-        if hadPanel {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel?.animator().setFrame(targetFrame, display: true)
-            }
-        } else {
-            panel?.setFrame(targetFrame, display: true)
-        }
-        panel?.orderFrontRegardless()
-    }
-
-    func hide() {
-        panel?.orderOut(nil)
+    /// The screen the island attaches to: the built-in notched display when
+    /// present, otherwise the main screen with a virtual notch.
+    static func islandScreen() -> NSScreen? {
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
     }
 
     func update(config: NotchShelfConfig, environment: AppEnvironment) {
@@ -59,49 +61,217 @@ final class NotchShelfWindowController {
             hide()
             return
         }
-        show(config: config, environment: environment)
-    }
 
-    private func rootView(config: NotchShelfConfig, environment: AppEnvironment) -> AnyView {
+        if activeStyle != config.preferredStyle {
+            teardown()
+        }
+        activeStyle = config.preferredStyle
+
         if config.preferredStyle == .island {
-            return AnyView(
-                NotchIslandView()
-                    .environmentObject(environment)
-                    .environmentObject(environment.notchIslandActivityCenter)
-                    .environmentObject(environment.liveIslandCoordinator)
-            )
+            updateIsland(config: config, environment: environment)
+        } else {
+            showClassicShelf(config: config, environment: environment)
         }
-
-        return AnyView(NotchShelfView().environmentObject(environment))
     }
 
-    private func frame(for config: NotchShelfConfig, environment: AppEnvironment) -> CGRect {
-        if config.preferredStyle == .island {
-            return islandFrame(for: config, environment: environment)
-        }
-
-        return classicShelfFrame(for: config)
+    func hide() {
+        pendingShrink?.cancel()
+        pendingShrink = nil
+        stopHoverMonitoring()
+        panel?.orderOut(nil)
     }
 
-    private func islandFrame(for config: NotchShelfConfig, environment: AppEnvironment) -> CGRect {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            return CGRect(x: 300, y: 700, width: config.collapsedWidth, height: config.collapsedHeight)
+    private func teardown() {
+        hide()
+        panel = nil
+    }
+
+    // MARK: - Hover tracking
+
+    /// Hover is tracked with mouse-location monitors instead of SwiftUI
+    /// `.onHover`: a non-activating panel does not reliably get tracking-area
+    /// events while another app is frontmost, and monitors keep working
+    /// system-wide without any special permissions.
+    private func startHoverMonitoring(environment: AppEnvironment) {
+        hoverEnvironment = environment
+        if globalMouseMonitor == nil {
+            globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+                Task { @MainActor in
+                    self?.evaluateHover()
+                }
+            }
+        }
+        if localMouseMonitor == nil {
+            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] event in
+                Task { @MainActor in
+                    self?.evaluateHover()
+                }
+                return event
+            }
+        }
+        if hoverPollTimer == nil {
+            // Low-frequency polling backstop: monitors can miss events in
+            // some routing situations (full-screen spaces, warped cursors),
+            // and the notch band is small enough that hover must never die.
+            let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    self?.evaluateHover()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            hoverPollTimer = timer
+        }
+    }
+
+    private func stopHoverMonitoring() {
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        hoverPollTimer?.invalidate()
+        hoverPollTimer = nil
+        if pointerInsideIsland {
+            pointerInsideIsland = false
+            hoverEnvironment?.handleNotchHoverChanged(false)
+        }
+    }
+
+    private func evaluateHover() {
+        guard let environment = hoverEnvironment,
+              activeStyle == .island,
+              panel?.isVisible == true,
+              let layout = layoutModel.layout else {
+            return
         }
 
-        return notchGeometryService.panelFrame(
-            for: environment.notchIslandActivityCenter.presentationState,
-            screen: screen,
-            config: config
+        let inside = hoverRect(layout: layout).contains(NSEvent.mouseLocation)
+        guard inside != pointerInsideIsland else { return }
+        pointerInsideIsland = inside
+        environment.handleNotchHoverChanged(inside)
+    }
+
+    /// The island shape's current footprint in global screen coordinates,
+    /// with a small grace inset while open so edge jitter doesn't flap the
+    /// hover state machine.
+    private func hoverRect(layout: NotchIslandLayout) -> CGRect {
+        let state = layoutModel.displayState
+        let size = layout.shapeSize(for: state)
+        let notch = layout.notchFrame.rect
+        let rect = CGRect(
+            x: notch.midX - size.width / 2,
+            y: notch.maxY - size.height,
+            width: size.width,
+            height: size.height
         )
+        if state == .compact || state == .expanded {
+            return rect.insetBy(dx: -10, dy: -10)
+        }
+        return rect
     }
 
-    private func windowLevel(for config: NotchShelfConfig) -> NSWindow.Level {
-        guard config.preferredStyle == .island,
-              config.allowNotchIslandAboveMenuBar else {
-            return .statusBar
+    // MARK: - Notch Island
+
+    private func updateIsland(config: NotchShelfConfig, environment: AppEnvironment) {
+        guard let screen = Self.islandScreen() else {
+            hide()
+            return
         }
 
-        return .popUpMenu
+        let state = environment.notchIslandActivityCenter.presentationState
+        guard state != .hidden else {
+            hide()
+            return
+        }
+
+        let layout = notchGeometryService.islandLayout(for: screen, config: config)
+        let panel = ensureIslandPanel(
+            config: config,
+            environment: environment,
+            initialFrame: layout.panelFrame(for: state)
+        )
+
+        if layoutModel.layout != layout {
+            layoutModel.layout = layout
+        }
+        transition(panel: panel, to: state, layout: layout)
+        panel.orderFrontRegardless()
+        startHoverMonitoring(environment: environment)
+    }
+
+    private func ensureIslandPanel(
+        config: NotchShelfConfig,
+        environment: AppEnvironment,
+        initialFrame: CGRect
+    ) -> NotchShelfPanel {
+        if let panel {
+            return panel
+        }
+
+        let panel = NotchShelfPanel(contentRect: initialFrame, style: .island, config: config)
+        let root = NotchIslandRootView(model: layoutModel)
+            .environmentObject(environment)
+            .environmentObject(environment.notchIslandActivityCenter)
+            .environmentObject(environment.liveIslandCoordinator)
+        let hostingView = NSHostingView(rootView: AnyView(root))
+        hostingView.frame = CGRect(origin: .zero, size: initialFrame.size)
+        hostingView.autoresizingMask = [.width, .height]
+        panel.contentView = hostingView
+        self.panel = panel
+        return panel
+    }
+
+    /// Moves the panel between state frames without ever animating the window
+    /// itself: grow instantly to the union so the SwiftUI morph has room, let
+    /// the spring play out, then snap down to the exact target frame.
+    private func transition(
+        panel: NotchShelfPanel,
+        to state: NotchIslandPresentationState,
+        layout: NotchIslandLayout
+    ) {
+        let target = layout.panelFrame(for: state)
+        pendingShrink?.cancel()
+        pendingShrink = nil
+
+        let union = panel.frame.union(target)
+        if panel.frame != union {
+            panel.setFrame(union, display: true)
+        }
+
+        if layoutModel.displayState != state {
+            layoutModel.displayState = state
+        }
+
+        if union != target {
+            let shrink = DispatchWorkItem { [weak self] in
+                guard let self, let panel = self.panel else { return }
+                panel.setFrame(target, display: true)
+                self.pendingShrink = nil
+            }
+            pendingShrink = shrink
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.shrinkDelay, execute: shrink)
+        }
+    }
+
+    // MARK: - Classic shelf
+
+    private func showClassicShelf(config: NotchShelfConfig, environment: AppEnvironment) {
+        let targetFrame = classicShelfFrame(for: config)
+        if panel == nil {
+            panel = NotchShelfPanel(contentRect: targetFrame, style: .classicShelf, config: config)
+        }
+
+        guard let panel else { return }
+        panel.alphaValue = config.opacity
+        panel.ignoresMouseEvents = config.ignoreMouseEventsWhenInactive
+        panel.contentView = NSHostingView(
+            rootView: NotchShelfView().environmentObject(environment)
+        )
+        panel.setFrame(targetFrame, display: true)
+        panel.orderFrontRegardless()
     }
 
     private func classicShelfFrame(for config: NotchShelfConfig) -> CGRect {

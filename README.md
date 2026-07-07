@@ -76,15 +76,15 @@ tccutil reset AppleEvents com.aryasalem.MacForge
 
 Then quit and relaunch MacForge from Xcode while Music is playing.
 
-### Notch Island Floating Below The Camera
+### Notch Island Placement
 
-Open Settings -> Notch Shelf -> Placement and click Repair Notch Island Layout. This resets stale toolbar-sized values and re-anchors the black attached shell to the display top edge around the physical notch.
+The island measures the physical camera cutout directly from `NSScreen.auxiliaryTopLeftArea`/`auxiliaryTopRightArea` and attaches to it automatically — no manual calibration is needed or offered. The collapsed island is a pure-black shape sized exactly to the notch, so it is invisible until you hover, click, or an activity appears.
 
-Use Copy Notch Geometry Debug Info when reporting placement bugs. It copies the screen frame, visible frame, safe-area insets, auxiliary top areas, shell/content frames, current panel frame, window level, and calibration offsets.
+Use Copy Notch Geometry Debug Info (Settings -> Notch Shelf -> Island Size) when reporting placement bugs. It copies the screen frame, safe-area insets, auxiliary top areas, measured notch frame, per-state shape sizes and panel frames, current panel frame, and window level. The Show placement debug overlay toggle renders the live state and measured notch size on the island itself.
 
-If the shell is close but not visually touching on your exact MacBook, enable Calibration Mode and drag the island until the black shell touches the physical notch. Click Save Calibration, then quit and relaunch to confirm the saved offset persists.
+If a stale configuration from an older build misbehaves, use Settings -> Safety -> Repair Notch Island Layout (or Reset Island Layout in Notch settings); both re-derive everything from the current notch geometry.
 
-For isolated visual testing, enable Force Attached Notch Test Mode. It hides widgets and media so only the attached black shell and simple expanded test panel are shown. Use Hard Reset Notch Island Visual State if old toolbar-like values return.
+For isolated visual testing, launch with `--macforge-force-notch-test` (optionally plus `--macforge-force-notch-expanded`). These flags self-heal on the next normal launch.
 
 ### Force A Notch Media Card
 
@@ -94,7 +94,7 @@ Use Settings -> Notch Shelf -> Test Providers -> Force Now Playing Test Card to 
 
 Quit MacForge completely before launching from Xcode. A stale app bundle can keep older Classic Shelf or provider behavior alive even after the branch builds.
 
-Settings -> About and Settings -> Notch Shelf -> Diagnostics show the build label, branch, bundle path, config path, panel frame, window level, and placement offsets. For this branch, confirm the build label is `v0.26.3-real-notch-visual-fix`.
+Settings -> About and Settings -> Notch Shelf -> Diagnostics show the build label, branch, bundle path, config path, panel frame, and window level. For this branch, confirm the build label is `v0.27-dynamic-notch-island`.
 
 To collect visual evidence after a clean build:
 

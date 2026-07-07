@@ -38,6 +38,21 @@ final class NotchIslandStateTests: XCTestCase {
         XCTAssertEqual(center.presentationState, .collapsed)
     }
 
+    func testActivityDoesNotShrinkAnExpandedIsland() {
+        let center = NotchIslandActivityCenter(presentationState: .expanded)
+
+        center.showActivity(
+            kind: .preset,
+            title: "Running Preset",
+            message: "Focus",
+            symbolName: "scope",
+            duration: 4
+        )
+
+        XCTAssertEqual(center.presentationState, .expanded)
+        XCTAssertEqual(center.currentActivity?.kind, .preset)
+    }
+
     func testCommandResultMapsFailureToErrorActivity() {
         let center = NotchIslandActivityCenter()
         let result = CommandResult.failure("Window Action", "Accessibility permission is required.")
@@ -109,6 +124,41 @@ final class NotchIslandStateTests: XCTestCase {
         XCTAssertEqual(machine.clickToggle(isExpanded: false, calibrationMode: false), [.cancelExpand, .cancelCollapse, .expand])
         XCTAssertEqual(machine.pointerExited(calibrationMode: false), [])
         XCTAssertEqual(machine.state, .expandedByClick)
+    }
+
+    func testResetAfterProgrammaticCollapseReenablesHoverToExpand() {
+        // Reproduces the regression where a chevron/swipe/Settings collapse
+        // left the machine stuck in .expandedByClick, killing hover-to-expand.
+        var machine = NotchHoverStateMachine()
+        _ = machine.clickToggle(isExpanded: false, calibrationMode: false) // -> .expandedByClick
+        _ = machine.pointerExited(calibrationMode: false)                  // pointer leaves via chevron
+
+        // collapseNotchIsland() resets the machine.
+        XCTAssertEqual(machine.reset(), [.cancelExpand, .cancelCollapse])
+        XCTAssertEqual(machine.state, .idle)
+
+        // A later hover now schedules an expand instead of no-oping.
+        XCTAssertEqual(machine.pointerEntered(calibrationMode: false), [.cancelCollapse, .scheduleExpand])
+        XCTAssertEqual(machine.hoverDelayElapsed(calibrationMode: false), [.expand])
+        XCTAssertEqual(machine.state, .expandedByHover)
+    }
+
+    func testHoldExpandedStaysOpenUntilExplicitCollapse() {
+        // expandNotchIsland() (swipe/Settings/App Intent) holds the island open
+        // like a click-expand: pointer exit must not auto-collapse it.
+        var machine = NotchHoverStateMachine()
+
+        XCTAssertEqual(machine.holdExpanded(), [.cancelExpand, .cancelCollapse])
+        XCTAssertEqual(machine.state, .expandedByClick)
+        XCTAssertEqual(machine.pointerExited(calibrationMode: false), [])
+        XCTAssertEqual(machine.state, .expandedByClick)
+
+        // A subsequent click collapses it.
+        XCTAssertEqual(
+            machine.clickToggle(isExpanded: true, calibrationMode: false),
+            [.cancelExpand, .cancelCollapse, .collapse]
+        )
+        XCTAssertEqual(machine.state, .idle)
     }
 
     func testCalibrationModeDisablesHoverTransitions() {

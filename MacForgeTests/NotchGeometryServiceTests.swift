@@ -3,56 +3,84 @@ import XCTest
 @testable import MacForge
 
 final class NotchGeometryServiceTests: XCTestCase {
-    func testCameraGapInferredFromAuxiliaryTopAreas() {
-        let metrics = notchedMetricsWithAuxiliaryAreas()
+    private let service = NotchGeometryService()
 
-        let geometry = NotchGeometryService().anchorGeometry(metrics: metrics)
+    // MARK: - Physical notch measurement
 
-        XCTAssertTrue(geometry.hasLikelyNotch)
-        XCTAssertEqual(geometry.cameraGapFrame.rect.minX, 650, accuracy: 0.5)
-        XCTAssertEqual(geometry.cameraGapFrame.rect.width, 212, accuracy: 0.5)
-        XCTAssertEqual(geometry.collapsedFrame.rect.midX, geometry.cameraGapFrame.rect.midX, accuracy: 0.5)
-        XCTAssertNil(geometry.fallbackReason)
+    func testPhysicalNotchMeasuredExactlyFromAuxiliaryAreas() {
+        let notch = service.physicalNotchRect(metrics: notchedMetricsWithAuxiliaryAreas())
+
+        XCTAssertNotNil(notch)
+        XCTAssertEqual(notch?.minX ?? 0, 650, accuracy: 0.5)
+        XCTAssertEqual(notch?.width ?? 0, 212, accuracy: 0.5)
+        XCTAssertEqual(notch?.height ?? 0, 38, accuracy: 0.5)
+        XCTAssertEqual(notch?.maxY ?? 0, 982, accuracy: 0.5)
     }
 
-    func testSafeAreaOnlyNotchUsesCenteredFallbackGap() {
-        let metrics = NotchScreenMetrics(
-            screenID: "Built-in",
-            screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 982)),
-            visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 944)),
-            safeAreaInsets: EdgeInsetsCodable(top: 74, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: nil,
-            auxiliaryTopRightArea: nil,
-            hasLikelyNotch: true
+    func testSafeAreaOnlyNotchFallsBackToCenteredEstimate() {
+        let metrics = safeAreaOnlyMetrics()
+
+        let notch = service.physicalNotchRect(metrics: metrics)
+        let layout = service.islandLayout(metrics: metrics)
+
+        XCTAssertNotNil(notch)
+        XCTAssertEqual(notch?.midX ?? 0, 756, accuracy: 0.5)
+        XCTAssertEqual(notch?.height ?? 0, 34, accuracy: 0.5)
+        XCTAssertEqual(notch?.maxY ?? 0, 982, accuracy: 0.5)
+        XCTAssertTrue(layout.hasPhysicalNotch)
+        XCTAssertEqual(layout.fallbackReason, "Auxiliary notch areas were unavailable; using centered safe-area estimate.")
+    }
+
+    func testDisplayWithoutNotchUsesVirtualNotchAtTopCenter() {
+        let layout = service.islandLayout(metrics: externalDisplayMetrics())
+        let notch = layout.notchFrame.rect
+
+        XCTAssertFalse(layout.hasPhysicalNotch)
+        XCTAssertEqual(notch.midX, 720, accuracy: 0.5)
+        XCTAssertEqual(notch.maxY, 900, accuracy: 0.5)
+        XCTAssertNotNil(layout.fallbackReason)
+    }
+
+    func testVirtualNotchHonorsHorizontalOffsetButPhysicalNotchDoesNot() {
+        var config = NotchShelfConfig.default
+        config.islandHorizontalOffset = 60
+
+        let virtualLayout = service.islandLayout(metrics: externalDisplayMetrics(), config: config)
+        let physicalLayout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
+
+        XCTAssertEqual(virtualLayout.notchFrame.rect.midX, 780, accuracy: 0.5)
+        XCTAssertEqual(physicalLayout.notchFrame.rect.midX, 756, accuracy: 0.5)
+    }
+
+    // MARK: - Shape sizes
+
+    func testCollapsedShapeMatchesNotchPlusCornerFlares() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
+        let flare = NotchIslandLayout.topCornerFlare
+
+        XCTAssertEqual(layout.collapsedSize.width, 212 + flare * 2, accuracy: 0.5)
+        XCTAssertEqual(layout.collapsedSize.height, 38, accuracy: 0.5)
+    }
+
+    func testCompactShapeAddsAnEarOnEachSide() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
+
+        XCTAssertEqual(
+            layout.compactSize.width,
+            layout.collapsedSize.width + NotchIslandLayout.compactEarWidth * 2,
+            accuracy: 0.5
         )
-
-        let geometry = NotchGeometryService().anchorGeometry(metrics: metrics)
-
-        XCTAssertTrue(geometry.hasLikelyNotch)
-        XCTAssertEqual(geometry.cameraGapFrame.rect.midX, 756, accuracy: 0.5)
-        XCTAssertEqual(geometry.cameraGapFrame.rect.width, 210, accuracy: 0.5)
-        XCTAssertEqual(geometry.fallbackReason, "Auxiliary notch areas were unavailable; using centered safe-area estimate.")
+        XCTAssertGreaterThan(layout.compactSize.height, layout.collapsedSize.height)
     }
 
-    func testNonNotchedDisplayUsesTopCenterFallback() {
-        let metrics = NotchScreenMetrics(
-            screenID: "External",
-            screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1440, height: 900)),
-            visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1440, height: 875)),
-            safeAreaInsets: EdgeInsetsCodable(top: 0, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: nil,
-            auxiliaryTopRightArea: nil,
-            hasLikelyNotch: false
-        )
+    func testExpandedShapeUsesConfiguredSizeOnLargeDisplays() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
 
-        let geometry = NotchGeometryService().anchorGeometry(metrics: metrics)
-
-        XCTAssertFalse(geometry.hasLikelyNotch)
-        XCTAssertEqual(geometry.collapsedFrame.rect.midX, 720, accuracy: 0.5)
-        XCTAssertEqual(geometry.fallbackReason, "No notch geometry was detected; using top-center fallback.")
+        XCTAssertEqual(layout.expandedSize.width, NotchShelfConfig.default.expandedWidth, accuracy: 0.5)
+        XCTAssertEqual(layout.expandedSize.height, NotchShelfConfig.default.expandedHeight, accuracy: 0.5)
     }
 
-    func testExpandedFrameClampsOnSmallDisplays() {
+    func testExpandedShapeClampsOnSmallDisplays() {
         var config = NotchShelfConfig.default
         config.expandedWidth = 680
         let metrics = NotchScreenMetrics(
@@ -65,132 +93,109 @@ final class NotchGeometryServiceTests: XCTestCase {
             hasLikelyNotch: false
         )
 
-        let geometry = NotchGeometryService().anchorGeometry(metrics: metrics, config: config)
+        let layout = service.islandLayout(metrics: metrics, config: config)
 
-        XCTAssertLessThanOrEqual(geometry.expandedFrame.rect.width, 328)
-        XCTAssertGreaterThanOrEqual(geometry.expandedFrame.rect.minX, 16)
-        XCTAssertLessThanOrEqual(geometry.expandedFrame.rect.maxX, 344)
+        XCTAssertLessThanOrEqual(layout.expandedSize.width, 360 - 32)
+        XCTAssertLessThanOrEqual(layout.expandedSize.height, 600 * 0.6 + 0.5)
     }
 
-    func testExpandedFrameStaysBelowSafeTopArea() {
+    // MARK: - Panel frames
+
+    func testCollapsedPanelHugsTheNotchExactly() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
+        let panel = layout.panelFrame(for: .collapsed)
+        let notch = layout.notchFrame.rect
+
+        XCTAssertEqual(panel.midX, notch.midX, accuracy: 0.5)
+        XCTAssertEqual(panel.maxY, notch.maxY, accuracy: 0.5)
+        XCTAssertEqual(panel.width, layout.collapsedSize.width, accuracy: 0.5)
+        XCTAssertEqual(panel.height, layout.collapsedSize.height, accuracy: 0.5)
+    }
+
+    func testAllPanelFramesStayFlushWithScreenTopAndCentered() {
         let metrics = notchedMetricsWithAuxiliaryAreas()
+        let layout = service.islandLayout(metrics: metrics)
+        let screenTop = metrics.screenFrame.rect.maxY
+        let notchMidX = layout.notchFrame.rect.midX
 
-        let geometry = NotchGeometryService().anchorGeometry(metrics: metrics)
-
-        XCTAssertLessThanOrEqual(geometry.expandedFrame.rect.maxY, geometry.cameraGapFrame.rect.minY + 0.5)
+        for state in NotchIslandPresentationState.allCases {
+            let panel = layout.panelFrame(for: state)
+            XCTAssertEqual(panel.maxY, screenTop, accuracy: 0.5, "state \(state.rawValue)")
+            XCTAssertEqual(panel.midX, notchMidX, accuracy: 0.5, "state \(state.rawValue)")
+        }
     }
 
-    func testAttachedShellTopFlushesToScreenTop() {
-        let metrics = notchedMetricsWithAuxiliaryAreas()
+    func testLargerStatesReserveShadowMargins() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
 
-        let geometry = NotchGeometryService().attachmentGeometry(metrics: metrics)
+        let compact = layout.panelFrame(for: .compact)
+        let expanded = layout.panelFrame(for: .expanded)
 
-        XCTAssertEqual(geometry.attachedShellFrame.rect.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertEqual(geometry.attachedShellFrame.rect.midX, geometry.cameraGapFrame.rect.midX, accuracy: 0.5)
+        XCTAssertEqual(compact.width, layout.compactSize.size.width + 40, accuracy: 0.5)
+        XCTAssertEqual(compact.height, layout.compactSize.size.height + 24, accuracy: 0.5)
+        XCTAssertEqual(expanded.width, layout.expandedSize.size.width + 56, accuracy: 0.5)
+        XCTAssertEqual(expanded.height, layout.expandedSize.size.height + 40, accuracy: 0.5)
     }
 
-    func testPanelFrameIncludesAttachedShellWithoutMenuBarGap() {
-        let metrics = notchedMetricsWithAuxiliaryAreas()
-        let service = NotchGeometryService()
+    func testPanelFramesGrowMonotonicallyAcrossStates() {
+        let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
 
-        let collapsedFrame = service.panelFrame(for: .collapsed, metrics: metrics)
-        let compactFrame = service.panelFrame(for: .compact, metrics: metrics)
+        let collapsed = layout.panelFrame(for: .collapsed)
+        let compact = layout.panelFrame(for: .compact)
+        let expanded = layout.panelFrame(for: .expanded)
 
-        XCTAssertEqual(collapsedFrame.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertEqual(compactFrame.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertLessThan(collapsedFrame.minY, metrics.screenFrame.rect.maxY)
-        XCTAssertLessThan(compactFrame.minY, metrics.screenFrame.rect.maxY)
+        XCTAssertLessThan(collapsed.width, compact.width)
+        XCTAssertLessThan(compact.width, expanded.width)
+        XCTAssertLessThan(collapsed.height, compact.height)
+        XCTAssertLessThan(compact.height, expanded.height)
+        XCTAssertTrue(expanded.contains(collapsed))
     }
 
-    func testDefaultIslandWidthsStayBelowToolbarThreshold() {
-        let geometry = NotchGeometryService().anchorGeometry(metrics: notchedMetricsWithAuxiliaryAreas())
-
-        XCTAssertLessThanOrEqual(geometry.collapsedFrame.rect.width, 280)
-        XCTAssertLessThanOrEqual(geometry.compactFrame.rect.width, 420)
-        XCTAssertGreaterThanOrEqual(geometry.expandedFrame.rect.width, 520)
-    }
-
-    func testAttachedOffsetsAndShellHeightAreApplied() {
-        var config = NotchShelfConfig.default
-        config.islandVerticalOffset = 12
-        config.islandHorizontalOffset = 32
-        config.attachedShellHeight = 60
-
-        let geometry = NotchGeometryService().attachmentGeometry(metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
-
-        XCTAssertEqual(geometry.attachedShellFrame.rect.maxY, 994, accuracy: 0.5)
-        XCTAssertEqual(geometry.attachedShellFrame.rect.height, 60, accuracy: 0.5)
-        XCTAssertEqual(geometry.attachedShellFrame.rect.midX, geometry.cameraGapFrame.rect.midX + 32, accuracy: 0.5)
-    }
-
-    func testPanelTopAnchorStaysFixedAcrossStates() {
-        let service = NotchGeometryService()
-        let metrics = notchedMetricsWithAuxiliaryAreas()
-
-        let collapsed = service.panelLayout(for: .collapsed, metrics: metrics)
-        let compact = service.panelLayout(for: .compact, metrics: metrics)
-        let expanded = service.panelLayout(for: .expanded, metrics: metrics)
-
-        XCTAssertEqual(collapsed.panelFrame.rect.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertEqual(compact.panelFrame.rect.maxY, collapsed.panelFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertEqual(expanded.panelFrame.rect.maxY, collapsed.panelFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertGreaterThan(expanded.panelFrame.rect.height, compact.panelFrame.rect.height)
-    }
-
-    func testManualCalibrationOffsetAffectsActualPanelFrame() {
-        var config = NotchShelfConfig.default
-        config.islandHorizontalOffset = 48
-        config.islandVerticalOffset = -20
-        let metrics = notchedMetricsWithAuxiliaryAreas()
-
-        let layout = NotchGeometryService().panelLayout(for: .collapsed, metrics: metrics, config: config)
-
-        XCTAssertEqual(layout.panelFrame.rect.maxY, metrics.screenFrame.rect.maxY - 20, accuracy: 0.5)
-        XCTAssertEqual(layout.panelFrame.rect.midX, metrics.screenFrame.rect.midX + 48, accuracy: 0.5)
-    }
-
-    func testForceTestModeUsesAttachedOnlyCollapsedLayout() {
-        var config = NotchShelfConfig.default
-        config.forceAttachedNotchTestMode = true
-        let layout = NotchGeometryService().panelLayout(for: .collapsed, metrics: notchedMetricsWithAuxiliaryAreas(), config: config)
-
-        XCTAssertEqual(layout.panelFrame.rect, layout.attachmentGeometry.attachedShellFrame.rect)
-    }
-
-    func testExpandedPanelGrowsDownwardWithTopAnchored() {
-        let service = NotchGeometryService()
-        let metrics = notchedMetricsWithAuxiliaryAreas()
-
-        let compactFrame = service.panelFrame(for: .compact, metrics: metrics)
-        let expandedFrame = service.panelFrame(for: .expanded, metrics: metrics)
-
-        XCTAssertEqual(expandedFrame.maxY, metrics.screenFrame.rect.maxY, accuracy: 0.5)
-        XCTAssertGreaterThan(expandedFrame.height, compactFrame.height)
-        XCTAssertLessThan(expandedFrame.minY, compactFrame.minY)
-    }
+    // MARK: - Config repair
 
     func testOldToolbarConfigRepairsToAttachedDefaults() {
         var config = NotchShelfConfig.default
-        config.configVersion = 2
+        config.configVersion = 263
         config.collapsedWidth = 620
         config.compactWidth = 620
-        config.collapsedHeight = 76
-        config.compactHeight = 76
         config.islandVerticalOffset = 140
         config.forceAttachedNotchTestMode = true
 
         XCTAssertTrue(config.repairAttachedNotchLayoutIfNeeded())
         XCTAssertEqual(config.configVersion, NotchShelfConfig.currentConfigVersion)
         XCTAssertEqual(config.preferredStyle, .island)
-        XCTAssertLessThanOrEqual(config.collapsedWidth, 280)
-        XCTAssertLessThanOrEqual(config.compactWidth, 420)
         XCTAssertEqual(config.islandVerticalOffset, 0)
-        XCTAssertTrue(config.overlayMenuBarForAttachedNotch)
         XCTAssertFalse(config.forceAttachedNotchTestMode)
     }
 
-    func testExternalDisplayUsesNonAttachedFallback() {
-        let metrics = NotchScreenMetrics(
+    // MARK: - Fixtures
+
+    private func notchedMetricsWithAuxiliaryAreas() -> NotchScreenMetrics {
+        NotchScreenMetrics(
+            screenID: "Built-in",
+            screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 982)),
+            visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 944)),
+            safeAreaInsets: EdgeInsetsCodable(top: 38, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRectCodable(CGRect(x: 0, y: 944, width: 650, height: 38)),
+            auxiliaryTopRightArea: CGRectCodable(CGRect(x: 862, y: 944, width: 650, height: 38)),
+            hasLikelyNotch: true
+        )
+    }
+
+    private func safeAreaOnlyMetrics() -> NotchScreenMetrics {
+        NotchScreenMetrics(
+            screenID: "Built-in",
+            screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 982)),
+            visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 944)),
+            safeAreaInsets: EdgeInsetsCodable(top: 34, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: nil,
+            auxiliaryTopRightArea: nil,
+            hasLikelyNotch: true
+        )
+    }
+
+    private func externalDisplayMetrics() -> NotchScreenMetrics {
+        NotchScreenMetrics(
             screenID: "External",
             screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1440, height: 900)),
             visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1440, height: 875)),
@@ -198,26 +203,6 @@ final class NotchGeometryServiceTests: XCTestCase {
             auxiliaryTopLeftArea: nil,
             auxiliaryTopRightArea: nil,
             hasLikelyNotch: false
-        )
-
-        let service = NotchGeometryService()
-        let geometry = service.attachmentGeometry(metrics: metrics)
-        let collapsedPanelFrame = service.panelFrame(for: .collapsed, metrics: metrics)
-
-        XCTAssertFalse(geometry.hasLikelyNotch)
-        XCTAssertEqual(collapsedPanelFrame, geometry.collapsedContentFrame.rect)
-        XCTAssertLessThan(collapsedPanelFrame.maxY, metrics.screenFrame.rect.maxY)
-    }
-
-    private func notchedMetricsWithAuxiliaryAreas() -> NotchScreenMetrics {
-        NotchScreenMetrics(
-            screenID: "Built-in",
-            screenFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 982)),
-            visibleFrame: CGRectCodable(CGRect(x: 0, y: 0, width: 1512, height: 944)),
-            safeAreaInsets: EdgeInsetsCodable(top: 74, left: 0, bottom: 0, right: 0),
-            auxiliaryTopLeftArea: CGRectCodable(CGRect(x: 0, y: 944, width: 650, height: 38)),
-            auxiliaryTopRightArea: CGRectCodable(CGRect(x: 862, y: 944, width: 650, height: 38)),
-            hasLikelyNotch: true
         )
     }
 }
