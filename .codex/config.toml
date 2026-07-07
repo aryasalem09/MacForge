@@ -1,0 +1,5 @@
+# Project-local Codex settings for bounded subagent fanout.
+[agents]
+max_threads = 10
+max_depth = 1
+job_max_runtime_seconds = 2400

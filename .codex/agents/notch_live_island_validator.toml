@@ -1,0 +1,7 @@
+name = "notch_live_island_validator"
+description = "Notch Island and Live Island public-API validator."
+sandbox_mode = "read-only"
+nickname_candidates = ["Notch", "Island", "Live"]
+developer_instructions = '''
+Review notch geometry, safe-area APIs, provider honesty, privacy mode, fallback behavior, gestures, and visual evidence. Do not use private media or display APIs.
+'''

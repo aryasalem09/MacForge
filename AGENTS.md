@@ -112,3 +112,80 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Mac
 ## Current Machine Context
 
 This repo was created and verified on macOS 26.5 (25F71), MacBook Pro `Mac17,2`, Apple M5, with Xcode 26.2 installed at `/Applications/Xcode.app`.
+
+## Codex Project Snapshot
+
+Purpose: Native macOS customization and organization command center with safe local workflows, Notch Island, Live Island providers, file tools, presets, and App Intents.
+
+Stack: SwiftUI, AppKit bridges, macOS 14+, Xcode 26, Apple public APIs, Accessibility, Service Management, App Intents.
+
+Important directories:
+- App/ - app wiring and environment
+- Models/ - Codable state and command result types
+- Core/ - permissions, windowing, notch, live island, Dock, desktop, files, presets, Shortcuts
+- UI/ - SwiftUI feature screens
+- MacForgeTests/ - side-effect-safe unit tests
+- MacForgeBrowserBridge/ and VisualEvidence/ - bridge docs and visual evidence
+
+Setup commands:
+- Open MacForge.xcodeproj in Xcode 26+.
+- Use public Apple APIs and explicit user consent for system-facing features.
+
+Build commands:
+- DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' build
+- DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' clean build
+
+Test commands:
+- DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MacForge.xcodeproj -scheme MacForge -destination 'platform=macOS' test
+- Scripts/capture_notch_visual_evidence.sh for visual evidence when specifically needed.
+
+Lint/typecheck commands:
+- No standalone lint command discovered.
+
+Run/dev commands:
+- Open in Xcode and run the MacForge scheme on My Mac.
+
+Deployment commands:
+- Developer ID/local builds only unless a distribution task is explicitly requested; App Store variants need entitlement and feature review.
+
+Coding and safety conventions:
+- Do not use private APIs, root escalation, code injection, SIP bypasses, hidden persistence, or unsafe file operations.
+- Keep tests independent of real Accessibility, Dock, wallpaper, protected folders, Shortcuts, or external drives.
+- Do not stage generated visual evidence, app bundles, derived data, or logs unless deliberately requested.
+
+Git rules:
+- Check `git status --short --branch` before edits and handoff.
+- Do not use broad staging in dirty repos; stage only explicit paths when the user later asks for a commit.
+- Do not commit, push, force-push, rewrite history, delete files, or mutate production infrastructure without explicit approval.
+- Keep secrets, credentials, tokens, private keys, env files, build output, caches, downloaded data, model artifacts, and oversized generated files out of Git.
+
+Known risks:
+- System-facing features need explicit permission handling and honest limitations.
+- Notch/Live Island work must remain public-API and hardware-independent in tests.
+- Distribution requires careful entitlements/signing review.
+
+## Codex Subagent Policy
+
+Codex should use parallel subagents for nontrivial work, but fanout must be justified by independent workstreams. Prefer 4-8 agents for normal tasks. Use 8-12 only for large independent modules, audits, migrations, data pipelines, or test/review sweeps.
+
+Do not spawn agents that edit the same file at the same time. Keep `max_depth = 1` unless the repo-specific config and setup notes explain why `2` is justified. Always use a read-only scout before major edits, and always use independent tester/reviewer agents before claiming completion.
+
+Use CSV fanout for repeated independent tasks like file audits, package reviews, migration target reviews, route/component checks, artifact inventories, or per-module security reviews. Keep `max_concurrency` bounded so local builds, browser tests, Xcode, GPU work, or data pipelines do not overload the machine.
+
+## Recommended Agent Roles
+
+Use the global `repo_scout`, `architect`, `implementer`, `tester`, `reviewer`, `security_auditor`, `docs_writer`, and `release_manager` agents as the default team. This repo also defines project-scoped agents for:
+- macos swiftui architect
+- notch live island validator
+- system safety reviewer
+- macos build verifier
+
+Start meaningful work with a read-only scout, then split implementation by ownership area. Keep docs and validation agents independent from implementation agents.
+
+## Definition Of Done
+
+- The request is implemented or the blocker is documented with exact evidence.
+- Relevant commands from this AGENTS.md were run, or skipped commands are listed with a reason.
+- Diffs are reviewed for scope, secrets, large artifacts, generated files, and unsafe operations.
+- Documentation and Codex setup notes are updated when commands, architecture, data flow, deployment, or risks change.
+- Final handoff lists files changed, commands run, validation status, skipped tests, and remaining risks.
