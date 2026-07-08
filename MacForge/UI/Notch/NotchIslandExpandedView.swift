@@ -213,6 +213,8 @@ struct NowPlayingHero: View {
 
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
+    @State private var dragFraction: Double?
+    @State private var isScrubberHovered = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -247,9 +249,14 @@ struct NowPlayingHero: View {
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
     }
 
+    private var canScrub: Bool {
+        snapshot.supportsScrubbing && (snapshot.duration ?? 0) > 0
+    }
+
     @ViewBuilder
     private var scrubber: some View {
-        let progress = snapshot.progress ?? 0
+        let progress = dragFraction ?? snapshot.progress ?? 0
+        let emphasized = canScrub && (isScrubberHovered || dragFraction != nil)
         VStack(spacing: 4) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -257,19 +264,51 @@ struct NowPlayingHero: View {
                     Capsule().fill(.white)
                         .frame(width: max(0, geo.size.width * progress.clamped(to: 0...1)))
                 }
+                .scaleEffect(y: emphasized ? 1.6 : 1, anchor: .center)
+                .animation(.easeOut(duration: 0.12), value: emphasized)
+                .contentShape(Rectangle().inset(by: -8))
+                .gesture(scrubGesture(width: geo.size.width))
             }
             .frame(height: 4)
+            .onHover { hovering in
+                isScrubberHovered = hovering
+            }
 
-            if let elapsed = snapshot.elapsedTime, let duration = snapshot.duration, duration > 0 {
+            if let duration = snapshot.duration, duration > 0 {
+                let elapsed = dragFraction.map { $0 * duration } ?? snapshot.elapsedTime ?? 0
                 HStack {
                     Text(timeString(elapsed))
                     Spacer()
                     Text("-" + timeString(max(0, duration - elapsed)))
                 }
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.white.opacity(dragFraction != nil ? 0.9 : 0.55))
             }
         }
+    }
+
+    /// Drag anywhere on the bar to jump the source to that position — the
+    /// scrubber finally does what it looks like it does.
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard canScrub, width > 0 else { return }
+                dragFraction = Double(value.location.x / width).clamped(to: 0...1)
+            }
+            .onEnded { value in
+                guard canScrub, width > 0, let duration = snapshot.duration else {
+                    dragFraction = nil
+                    return
+                }
+                let fraction = Double(value.location.x / width).clamped(to: 0...1)
+                Task {
+                    let result = await liveIslandCoordinator.seekCurrent(to: fraction * duration)
+                    if !result.success {
+                        environment.append(result)
+                    }
+                    dragFraction = nil
+                }
+            }
     }
 
     private var controls: some View {

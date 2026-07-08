@@ -337,6 +337,162 @@ final class LiveIslandTests: XCTestCase {
         XCTAssertEqual(decoded.preferredStyle, .classicShelf)
     }
 
+    // MARK: - v1.0 free-core additions
+
+    func testHysteresisHandsBackFreshSnapshotFromCurrentProvider() {
+        let now = Date()
+        var current = musicSnapshot(now: now.addingTimeInterval(-5))
+        current.elapsedTime = 10
+        var fresh = musicSnapshot(now: now)
+        fresh.elapsedTime = 15
+        var rival = musicSnapshot(now: now)
+        rival.providerID = "spotify"
+        rival.startedAt = now.addingTimeInterval(1)
+
+        // Same-priority switch within the 2s window: stay on the current
+        // provider, but with its FRESH data (elapsed keeps moving).
+        let selected = LiveIslandCoordinator.selectSnapshot(
+            from: [fresh, rival],
+            current: current,
+            settings: .default,
+            now: now,
+            lastSwitchAt: now.addingTimeInterval(-1)
+        )
+
+        XCTAssertEqual(selected.providerID, "music")
+        XCTAssertEqual(selected.elapsedTime, 15)
+    }
+
+    func testVisibleChangeIgnoresIdentityChurnButTracksElapsed() {
+        let now = Date()
+        let first = musicSnapshot(now: now)
+        var identical = musicSnapshot(now: now.addingTimeInterval(1))
+        identical.elapsedTime = first.elapsedTime
+
+        XCTAssertFalse(identical.hasVisibleChange(from: first))
+
+        var progressed = identical
+        progressed.elapsedTime = (identical.elapsedTime ?? 0) + 1
+        XCTAssertTrue(progressed.hasVisibleChange(from: first))
+    }
+
+    func testIdleToIdleHasNoVisibleChange() {
+        let now = Date()
+        XCTAssertFalse(LiveIslandSnapshot.idle(at: now.addingTimeInterval(5)).hasVisibleChange(from: .idle(at: now)))
+    }
+
+    func testPushedSnapshotSurfacesImmediatelyAndExpires() async {
+        var now = Date()
+        let coordinator = LiveIslandCoordinator(nowProvider: { now })
+
+        let hud = LiveIslandSnapshot(
+            providerID: "volume-hud",
+            providerName: "Volume",
+            kind: .hud,
+            priority: .hud,
+            title: "Volume",
+            subtitle: "50%",
+            symbolName: "speaker.wave.2.fill",
+            progress: 0.5,
+            startedAt: now,
+            expiresAt: now.addingTimeInterval(1.6)
+        )
+        coordinator.push(hud)
+        await coordinator.refresh()
+        XCTAssertEqual(coordinator.currentSnapshot.kind, .hud)
+
+        now = now.addingTimeInterval(3)
+        await coordinator.refresh()
+        XCTAssertEqual(coordinator.currentSnapshot.kind, .idle)
+    }
+
+    func testTrayRetentionPrunesOnlyExpiredItems() {
+        let now = Date()
+        let fresh = NotchTrayItem(url: URL(fileURLWithPath: "/tmp/fresh.txt"), addedAt: now.addingTimeInterval(-30 * 60))
+        let stale = NotchTrayItem(url: URL(fileURLWithPath: "/tmp/stale.txt"), addedAt: now.addingTimeInterval(-3 * 60 * 60))
+
+        let pruned = AppEnvironment.prunedTrayItems([fresh, stale], retentionMinutes: 60, now: now)
+        XCTAssertEqual(pruned.map(\.name), ["fresh.txt"])
+
+        let keepAll = AppEnvironment.prunedTrayItems([fresh, stale], retentionMinutes: 0, now: now)
+        XCTAssertEqual(keepAll.count, 2)
+    }
+
+    func testCalendarSubtitleFormatsUpcomingAndOngoing() {
+        let now = Date()
+        let soon = CalendarAgendaProvider.subtitle(
+            for: now.addingTimeInterval(12 * 60),
+            endDate: now.addingTimeInterval(60 * 60),
+            now: now
+        )
+        XCTAssertEqual(soon, "in 12m")
+
+        let far = CalendarAgendaProvider.subtitle(
+            for: now.addingTimeInterval(90 * 60),
+            endDate: now.addingTimeInterval(150 * 60),
+            now: now
+        )
+        XCTAssertEqual(far, "in 1h 30m")
+
+        let ongoing = CalendarAgendaProvider.subtitle(
+            for: now.addingTimeInterval(-10 * 60),
+            endDate: now.addingTimeInterval(20 * 60),
+            now: now
+        )
+        XCTAssertTrue(ongoing.hasPrefix("until "))
+    }
+
+    func testMusicParserMarksScrubbableWhenDurationKnown() {
+        let output = ["playing", "Song", "Artist", "Album", "10", "200"].joined(separator: AutomationMediaParser.delimiter)
+        let snapshot = AutomationMediaParser.parseMusicLikeOutput(
+            output,
+            providerID: "apple-music",
+            providerName: "Apple Music",
+            kind: .music,
+            appName: "Music",
+            bundleIdentifier: "com.apple.Music",
+            symbolName: "music.note",
+            now: Date()
+        )
+
+        XCTAssertEqual(snapshot?.supportsScrubbing, true)
+    }
+
+    func testSpotifyArtworkFieldParsesIntoArtworkURL() {
+        let output = ["playing", "Song", "Artist", "Album", "10", "200000", "https://i.scdn.co/image/abc"].joined(separator: AutomationMediaParser.delimiter)
+        let snapshot = AutomationMediaParser.parseMusicLikeOutput(
+            output,
+            providerID: "spotify",
+            providerName: "Spotify",
+            kind: .music,
+            appName: "Spotify",
+            bundleIdentifier: "com.spotify.client",
+            symbolName: "music.note.list",
+            durationDivisor: 1000,
+            now: Date()
+        )
+
+        XCTAssertEqual(snapshot?.artworkURL?.absoluteString, "https://i.scdn.co/image/abc")
+        XCTAssertEqual(snapshot?.duration, 200)
+    }
+
+    func testTimerRestoreSkipsExpiredTimers() {
+        let now = Date()
+        let provider = TimerProvider()
+        var changes: [LiveIslandTimer?] = []
+        provider.onTimerChanged = { changes.append($0) }
+
+        let expired = LiveIslandTimer(duration: 60, startedAt: now.addingTimeInterval(-120))
+        provider.restoreTimer(expired, now: now)
+        XCTAssertNil(provider.activeTimer)
+        XCTAssertTrue(changes.isEmpty)
+
+        let running = LiveIslandTimer(duration: 600, startedAt: now.addingTimeInterval(-60))
+        provider.restoreTimer(running, now: now)
+        XCTAssertEqual(provider.activeTimer?.endsAt, running.endsAt)
+        XCTAssertEqual(changes.count, 1)
+    }
+
     private func musicSnapshot(now: Date) -> LiveIslandSnapshot {
         LiveIslandSnapshot(
             providerID: "music",

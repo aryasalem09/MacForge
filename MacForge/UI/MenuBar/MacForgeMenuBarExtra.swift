@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Island-first menu bar: the notch controls up top, desktop helpers tucked
+/// into a submenu.
 struct MacForgeMenuBarExtra: View {
     @EnvironmentObject private var environment: AppEnvironment
     @Environment(\.openWindow) private var openWindow
@@ -10,31 +12,21 @@ struct MacForgeMenuBarExtra: View {
             NSApp.activate(ignoringOtherApps: true)
         }
 
-        Button(environment.notchConfig.enabled ? "Hide Notch Shelf" : "Show Notch Shelf", systemImage: "macbook.gen2") {
+        Button(environment.notchConfig.enabled ? "Turn Off Notch Island" : "Turn On Notch Island", systemImage: "macbook.gen2") {
             environment.toggleNotchShelf()
         }
 
-        Menu("Apply Preset") {
-            if environment.appPresets.isEmpty {
-                Text("No presets")
-            } else {
-                ForEach(environment.appPresets) { preset in
-                    Button(preset.name, systemImage: preset.iconName) {
-                        Task { await environment.runPreset(preset) }
-                    }
-                }
+        if environment.notchConfig.enabled {
+            Button("Expand Island", systemImage: "arrow.down.right.and.arrow.up.left") {
+                environment.expandNotchIsland()
             }
         }
 
-        QuickActionsMenu()
-
-        Menu("Open Pinned Folder") {
-            if environment.pinnedFolders.isEmpty {
-                Text("No pinned folders")
-            } else {
-                ForEach(environment.pinnedFolders) { folder in
-                    Button(folder.name, systemImage: "folder") {
-                        environment.openFolder(folder)
+        if environment.liveIslandSettings.timersEnabled {
+            Menu("Start Timer") {
+                ForEach([5, 10, 25, 45], id: \.self) { minutes in
+                    Button("\(minutes) minutes", systemImage: "timer") {
+                        environment.startLiveIslandTimer(minutes: minutes)
                     }
                 }
             }
@@ -42,19 +34,41 @@ struct MacForgeMenuBarExtra: View {
 
         Divider()
 
-        Button("Permissions", systemImage: "lock.shield") {
-            openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        Menu("Helpers") {
+            Menu("Apply Preset") {
+                if environment.appPresets.isEmpty {
+                    Text("No presets")
+                } else {
+                    ForEach(environment.appPresets) { preset in
+                        Button(preset.name, systemImage: preset.iconName) {
+                            Task { await environment.runPreset(preset) }
+                        }
+                    }
+                }
+            }
 
-        Button("Settings", systemImage: "gearshape") {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            NSApp.activate(ignoringOtherApps: true)
+            QuickActionsMenu()
+
+            Menu("Open Pinned Folder") {
+                if environment.pinnedFolders.isEmpty {
+                    Text("No pinned folders")
+                } else {
+                    ForEach(environment.pinnedFolders) { folder in
+                        Button(folder.name, systemImage: "folder") {
+                            environment.openFolder(folder)
+                        }
+                    }
+                }
+            }
         }
 
         Divider()
 
-        Button("Quit", systemImage: "power") {
+        SettingsLink {
+            Label("Settings", systemImage: "gearshape")
+        }
+
+        Button("Quit MacForge", systemImage: "power") {
             NSApp.terminate(nil)
         }
     }

@@ -4,6 +4,12 @@ import Foundation
 import UniformTypeIdentifiers
 
 private struct MacForgeConfiguration: Codable {
+    /// Bump when the meaning of persisted data changes. Version 1 predates the
+    /// field (decodes as nil); version 2 introduced explicit versioning, the
+    /// persistent notch tray, and the onboarding flag.
+    static let currentSchemaVersion = 2
+
+    var schemaVersion: Int?
     var notchConfig: NotchShelfConfig
     var liveIslandSettings: LiveIslandSettings?
     var dockSettings: DockSettings
@@ -14,6 +20,17 @@ private struct MacForgeConfiguration: Codable {
     var safetyConfirmationsEnabled: Bool
     var experimentalDockTweaksEnabled: Bool
     var showInDock: Bool
+    var notchTrayItems: [NotchTrayItem]?
+    var trayRetentionMinutes: Double?
+    var hasCompletedOnboarding: Bool?
+    var activeTimer: LiveIslandTimer?
+}
+
+private enum ConfigurationLoadOutcome {
+    case fresh
+    case loaded(MacForgeConfiguration)
+    case migrated(MacForgeConfiguration, fromVersion: Int, backupName: String?)
+    case failed(backupName: String?, errorDescription: String)
 }
 
 enum FileRuleOperationResult<T> {
@@ -22,9 +39,11 @@ enum FileRuleOperationResult<T> {
 }
 
 struct MacForgeBuildInfo: Hashable {
-    static let branch = "v0.27-dynamic-notch-island"
-    static let label = "v0.27-dynamic-notch-island"
-    static let buildDate = "2026-07-07"
+    /// Derived from the bundle so the About panel, diagnostics, and debug
+    /// overlay can never disagree with the shipped MARKETING_VERSION.
+    static let marketingVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    static let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    static var label: String { "v\(marketingVersion) (\(buildNumber))" }
 
     var bundlePath: String {
         Bundle.main.bundleURL.path
@@ -65,6 +84,13 @@ final class AppEnvironment: ObservableObject {
                         agentActivityCenter.clearAll()
                     }
                 }
+                if liveIslandSettings.volumeHUDEnabled != oldValue.volumeHUDEnabled {
+                    if liveIslandSettings.volumeHUDEnabled {
+                        volumeHUDCenter.start()
+                    } else {
+                        volumeHUDCenter.stop()
+                    }
+                }
             }
             persist()
         }
@@ -90,7 +116,23 @@ final class AppEnvironment: ObservableObject {
     @Published var permissionStates: [PermissionState] = []
     @Published var windows: [WindowInfo] = []
     @Published var commandResults: [CommandResult] = []
-    @Published var notchFileTrayItems: [URL] = []
+    @Published var notchTrayItems: [NotchTrayItem] {
+        didSet { persist() }
+    }
+    @Published var trayRetentionMinutes: Double {
+        didSet {
+            pruneExpiredTrayItems()
+            persist()
+        }
+    }
+    @Published var hasCompletedOnboarding: Bool {
+        didSet { persist() }
+    }
+    /// Mirror of the timer provider's active timer, persisted so a countdown
+    /// survives relaunch.
+    @Published var activeLiveTimer: LiveIslandTimer? {
+        didSet { persist() }
+    }
     @Published var wallpaperStates: [ScreenWallpaperState] = []
     @Published var safetyConfirmationsEnabled: Bool {
         didSet { persist() }
@@ -127,6 +169,7 @@ final class AppEnvironment: ObservableObject {
     let notchIslandActivityCenter = NotchIslandActivityCenter()
     let liveIslandCoordinator = LiveIslandCoordinator()
     let agentActivityCenter = AgentActivityCenter()
+    let volumeHUDCenter = VolumeHUDCenter()
 
     private let configurationURL: URL
     private var isLoading = true
@@ -134,6 +177,7 @@ final class AppEnvironment: ObservableObject {
     private var hoverStateMachine = NotchHoverStateMachine()
     private var hoverExpandTask: Task<Void, Never>?
     private var hoverCollapseTask: Task<Void, Never>?
+    private var persistTask: Task<Void, Never>?
 
     var buildInfo: MacForgeBuildInfo { MacForgeBuildInfo() }
     var configurationPath: String { configurationURL.path }
@@ -152,7 +196,28 @@ final class AppEnvironment: ObservableObject {
         try? FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         configurationURL = supportDirectory.appendingPathComponent("configuration.json")
 
-        let loaded = Self.loadConfiguration(from: configurationURL)
+        let loaded: MacForgeConfiguration?
+        var startupMessages: [CommandResult] = []
+        switch Self.loadConfiguration(from: configurationURL) {
+        case .fresh:
+            loaded = nil
+        case .loaded(let configuration):
+            loaded = configuration
+        case .migrated(let configuration, let fromVersion, let backupName):
+            loaded = configuration
+            startupMessages.append(.success(
+                "Preferences",
+                "Settings were upgraded from schema v\(fromVersion) to v\(MacForgeConfiguration.currentSchemaVersion).",
+                details: backupName.map { ["A backup of the previous file was kept as \($0)."] } ?? []
+            ))
+        case .failed(let backupName, let errorDescription):
+            loaded = nil
+            startupMessages.append(.failure(
+                "Preferences",
+                "Saved settings could not be read, so defaults were used.",
+                details: [errorDescription] + (backupName.map { ["The unreadable file was kept as \($0)."] } ?? [])
+            ))
+        }
         var loadedNotchConfig = loaded?.notchConfig ?? .default
         let launchArguments = ProcessInfo.processInfo.arguments
         let forceVisualTest = launchArguments.contains("--macforge-force-notch-test")
@@ -182,6 +247,12 @@ final class AppEnvironment: ObservableObject {
         safetyConfirmationsEnabled = loaded?.safetyConfirmationsEnabled ?? true
         experimentalDockTweaksEnabled = loaded?.experimentalDockTweaksEnabled ?? false
         showInDock = loaded?.showInDock ?? true
+        let retentionMinutes = loaded?.trayRetentionMinutes ?? 0
+        trayRetentionMinutes = retentionMinutes
+        notchTrayItems = Self.prunedTrayItems(loaded?.notchTrayItems ?? [], retentionMinutes: retentionMinutes, now: Date())
+        // Configurations saved before onboarding existed belong to users who
+        // already set the app up — don't replay the welcome flow at them.
+        hasCompletedOnboarding = loaded?.hasCompletedOnboarding ?? (loaded != nil)
 
         wallpaperService.onPresetCreated = { [weak self] preset in
             Task { @MainActor in
@@ -189,14 +260,31 @@ final class AppEnvironment: ObservableObject {
             }
         }
 
+        activeLiveTimer = loaded?.activeTimer
+
         isLoading = false
         notchIslandActivityCenter.presentationState = notchConfig.enabled ? notchConfig.presentationState : .hidden
         liveIslandCoordinator.configureDefaultProviders(activityCenter: notchIslandActivityCenter)
+        liveIslandCoordinator.timerProvider.onTimerChanged = { [weak self] timer in
+            self?.activeLiveTimer = timer
+        }
+        // Resume a countdown that was running when the app last quit.
+        if let persistedTimer = loaded?.activeTimer, persistedTimer.endsAt > Date() {
+            liveIslandCoordinator.timerProvider.restoreTimer(persistedTimer)
+        } else if loaded?.activeTimer != nil {
+            activeLiveTimer = nil
+        }
         if !Self.isRunningUnitTests, !notchConfig.forceAttachedNotchTestMode {
             liveIslandCoordinator.updateSettings(liveIslandSettings)
             liveIslandCoordinator.start()
             if liveIslandSettings.agentActivityEnabled {
                 agentActivityCenter.start()
+            }
+            volumeHUDCenter.onHUDEvent = { [weak self] snapshot in
+                self?.liveIslandCoordinator.push(snapshot)
+            }
+            if liveIslandSettings.volumeHUDEnabled {
+                volumeHUDCenter.start()
             }
         }
         refreshPermissions()
@@ -204,17 +292,35 @@ final class AppEnvironment: ObservableObject {
         startNotchIslandObservation()
         startCommandBusObservation()
         updateShelfAndPersist()
+        // didSet observers don't fire during init, so apply the persisted
+        // Dock-visibility policy explicitly after launch finishes (AppDelegate
+        // no longer hardcodes .regular over the user's saved choice).
+        let dockPolicy: NSApplication.ActivationPolicy = showInDock ? .regular : .accessory
+        if !Self.isRunningUnitTests {
+            DispatchQueue.main.async {
+                NSApp.setActivationPolicy(dockPolicy)
+            }
+        }
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in
+                // Persistence is debounced; make sure a pending write lands
+                // before the process exits.
+                MainActor.assumeIsolated {
+                    self?.flushPendingPersist()
+                }
+            }
+            .store(in: &cancellables)
+        startupMessages.forEach(append)
         if repairedAttachedNotchLayout {
             append(.success("Notch Island", "Notch Island layout upgraded to the attached Dynamic Island engine."))
         }
         if forceVisualTest {
             append(.success("Visual QA", "Running \(MacForgeBuildInfo.label) with forced attached notch test mode."))
         }
-        if !Self.isRunningUnitTests, !forceVisualTest {
-            // Surface the macOS Accessibility approval dialog on launch when it
-            // hasn't been granted, so window features work instead of erroring.
-            promptForAccessibilityIfNeeded()
-        }
+        // Accessibility is intentionally NOT requested at launch. Window
+        // helpers prompt via requireAccessibility(for:) at the moment they
+        // are used, and onboarding explains the model — permissions stay tied
+        // to features.
         if launchArguments.contains("--macforge-demo-island"), !Self.isRunningUnitTests {
             // Suppress persistence so this QA-only override never leaks the
             // enabled/island state into a normal launch's saved configuration.
@@ -235,7 +341,8 @@ final class AppEnvironment: ObservableObject {
     func refreshPermissions() {
         permissionStates = permissionCenter.snapshot(
             folderAccessCount: pinnedFolders.count,
-            experimentalDockTweaksEnabled: experimentalDockTweaksEnabled
+            experimentalDockTweaksEnabled: experimentalDockTweaksEnabled,
+            calendarAgendaEnabled: liveIslandSettings.calendarAgendaEnabled
         )
     }
 
@@ -372,8 +479,6 @@ final class AppEnvironment: ObservableObject {
         let mouseLocation = NSEvent.mouseLocation
         let lines = [
             "buildLabel: \(MacForgeBuildInfo.label)",
-            "gitBranch: \(MacForgeBuildInfo.branch)",
-            "buildDate: \(MacForgeBuildInfo.buildDate)",
             "bundlePath: \(buildInfo.bundlePath)",
             "configPath: \(configurationPath)",
             "screenID: \(metrics.screenID)",
@@ -492,9 +597,9 @@ final class AppEnvironment: ObservableObject {
 
     func addNotchFileTrayItem(_ url: URL) {
         guard url.isFileURL else { return }
-        notchFileTrayItems.removeAll { $0 == url }
-        notchFileTrayItems.insert(url, at: 0)
-        notchFileTrayItems = Array(notchFileTrayItems.prefix(12))
+        notchTrayItems.removeAll { $0.path == url.path }
+        notchTrayItems.insert(NotchTrayItem(url: url), at: 0)
+        notchTrayItems = Array(notchTrayItems.prefix(24))
         notchIslandActivityCenter.showActivity(
             kind: .folder,
             title: "Tray",
@@ -505,12 +610,60 @@ final class AppEnvironment: ObservableObject {
     }
 
     func clearNotchFileTray() {
-        notchFileTrayItems = []
+        notchTrayItems = []
         append(.success("Tray", "Cleared temporary tray."))
     }
 
-    func revealNotchFileTrayItem(_ url: URL) {
+    func removeNotchTrayItem(_ item: NotchTrayItem) {
+        notchTrayItems.removeAll { $0.id == item.id }
+    }
+
+    func openNotchTrayItem(_ item: NotchTrayItem) {
+        guard let url = item.resolveURL() else {
+            removeNotchTrayItem(item)
+            append(.failure("Tray", "\(item.name) is no longer available and was removed from the tray."))
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    func revealNotchTrayItem(_ item: NotchTrayItem) {
+        guard let url = item.resolveURL() else {
+            removeNotchTrayItem(item)
+            append(.failure("Tray", "\(item.name) is no longer available and was removed from the tray."))
+            return
+        }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Hands tray files to AirDrop. Passing every resolvable item at once
+    /// mirrors the system share flow users expect from a shelf.
+    func airDropNotchTrayItems(_ items: [NotchTrayItem]) {
+        let urls = items.compactMap { $0.resolveURL() }
+        guard !urls.isEmpty else {
+            append(.failure("AirDrop", "None of the selected tray files are available."))
+            return
+        }
+        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
+            append(.failure("AirDrop", "AirDrop is not available right now."))
+            return
+        }
+        service.perform(withItems: urls)
+    }
+
+    /// Applies the configurable retention window. A zero window keeps files
+    /// until the user removes them.
+    func pruneExpiredTrayItems(now: Date = Date()) {
+        let pruned = Self.prunedTrayItems(notchTrayItems, retentionMinutes: trayRetentionMinutes, now: now)
+        if pruned.count != notchTrayItems.count {
+            notchTrayItems = pruned
+        }
+    }
+
+    static func prunedTrayItems(_ items: [NotchTrayItem], retentionMinutes: Double, now: Date) -> [NotchTrayItem] {
+        guard retentionMinutes > 0 else { return items }
+        let cutoff = now.addingTimeInterval(-retentionMinutes * 60)
+        return items.filter { $0.addedAt >= cutoff }
     }
 
     func addPinnedFolder() {
@@ -793,6 +946,7 @@ final class AppEnvironment: ObservableObject {
                 self?.processPendingCommandRequests()
                 self?.notchIslandActivityCenter.autoCollapseIfNeeded()
                 self?.syncNotchIslandPresentation()
+                self?.pruneExpiredTrayItems()
             }
             .store(in: &cancellables)
 
@@ -859,9 +1013,19 @@ final class AppEnvironment: ObservableObject {
 
         do {
             let data = try Data(contentsOf: url)
-            let configuration = try JSONDecoder.macForge.decode(MacForgeConfiguration.self, from: data)
+            var configuration = try JSONDecoder.macForge.decode(MacForgeConfiguration.self, from: data)
+            let version = configuration.schemaVersion ?? 1
+            guard version <= MacForgeConfiguration.currentSchemaVersion else {
+                return .failure(
+                    "Import Configuration",
+                    "This file was exported by a newer MacForge (schema v\(version)); this build supports up to v\(MacForgeConfiguration.currentSchemaVersion)."
+                )
+            }
+            if version < MacForgeConfiguration.currentSchemaVersion {
+                Self.migrate(&configuration, from: version)
+            }
             apply(configuration)
-            return .success("Import Configuration", "Imported configuration.")
+            return .success("Import Configuration", "Imported configuration (schema v\(version)).")
         } catch {
             return .failure("Import Configuration", "Could not import configuration.", details: [error.localizedDescription])
         }
@@ -877,7 +1041,40 @@ final class AppEnvironment: ObservableObject {
         fileRules = []
         safetyConfirmationsEnabled = true
         experimentalDockTweaksEnabled = false
+        showInDock = true
+        notchTrayItems = []
+        trayRetentionMinutes = 0
         append(.success("Reset Preferences", "MacForge preferences were reset. System settings were not changed."))
+    }
+
+    /// Turns the calendar agenda widget on, requesting Calendars access only
+    /// at this moment — the permission stays tied to the feature.
+    func setCalendarAgendaEnabled(_ enabled: Bool) {
+        guard enabled else {
+            liveIslandSettings.calendarAgendaEnabled = false
+            refreshPermissions()
+            return
+        }
+
+        Task { @MainActor in
+            let granted = CalendarAgendaProvider.hasFullAccess ? true : await CalendarAgendaProvider.requestAccess()
+            if granted {
+                liveIslandSettings.calendarAgendaEnabled = true
+                append(.success("Calendar", "Calendar agenda is now shown in the island before events start."))
+            } else {
+                liveIslandSettings.calendarAgendaEnabled = false
+                append(.failure(
+                    "Calendar",
+                    "Calendar access was not granted.",
+                    details: ["Allow MacForge under System Settings > Privacy & Security > Calendars, then turn the widget on again."]
+                ))
+            }
+            refreshPermissions()
+        }
+    }
+
+    func previewVolumeHUD() {
+        volumeHUDCenter.publishCurrentLevel()
     }
 
     func chooseLiveIslandDownloadsFolder() {
@@ -1192,10 +1389,30 @@ final class AppEnvironment: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Coalesces bursts of changes (calibration drags, config imports) into a
+    /// single disk write instead of re-encoding the whole file on every
+    /// property change on the main thread.
     private func persist() {
         guard !isLoading else { return }
+        persistTask?.cancel()
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistNow()
+        }
+    }
+
+    private func flushPendingPersist() {
+        guard persistTask != nil else { return }
+        persistNow()
+    }
+
+    func persistNow() {
+        guard !isLoading else { return }
+        persistTask?.cancel()
+        persistTask = nil
         do {
-            try currentConfigurationData().write(to: configurationURL)
+            try currentConfigurationData().write(to: configurationURL, options: [.atomic])
         } catch {
             commandResults.insert(.failure("Preferences", "Could not save preferences.", details: [error.localizedDescription]), at: 0)
         }
@@ -1245,6 +1462,7 @@ final class AppEnvironment: ObservableObject {
 
     private func currentConfigurationData() throws -> Data {
         try JSONEncoder.macForge.encode(MacForgeConfiguration(
+            schemaVersion: MacForgeConfiguration.currentSchemaVersion,
             notchConfig: notchConfig,
             liveIslandSettings: liveIslandSettings,
             dockSettings: dockSettings,
@@ -1254,7 +1472,11 @@ final class AppEnvironment: ObservableObject {
             fileRules: fileRules,
             safetyConfirmationsEnabled: safetyConfirmationsEnabled,
             experimentalDockTweaksEnabled: experimentalDockTweaksEnabled,
-            showInDock: showInDock
+            showInDock: showInDock,
+            notchTrayItems: notchTrayItems,
+            trayRetentionMinutes: trayRetentionMinutes,
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            activeTimer: activeLiveTimer
         ))
     }
 
@@ -1269,12 +1491,55 @@ final class AppEnvironment: ObservableObject {
         safetyConfirmationsEnabled = configuration.safetyConfirmationsEnabled
         experimentalDockTweaksEnabled = configuration.experimentalDockTweaksEnabled
         showInDock = configuration.showInDock
-        persist()
+        trayRetentionMinutes = configuration.trayRetentionMinutes ?? 0
+        notchTrayItems = Self.prunedTrayItems(configuration.notchTrayItems ?? [], retentionMinutes: trayRetentionMinutes, now: Date())
+        hasCompletedOnboarding = configuration.hasCompletedOnboarding ?? true
+        persistNow()
     }
 
-    private static func loadConfiguration(from url: URL) -> MacForgeConfiguration? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder.macForge.decode(MacForgeConfiguration.self, from: data)
+    private static func loadConfiguration(from url: URL) -> ConfigurationLoadOutcome {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .fresh }
+        guard let data = try? Data(contentsOf: url) else {
+            return .failed(backupName: nil, errorDescription: "The configuration file could not be read.")
+        }
+
+        do {
+            var configuration = try JSONDecoder.macForge.decode(MacForgeConfiguration.self, from: data)
+            let version = configuration.schemaVersion ?? 1
+            guard version < MacForgeConfiguration.currentSchemaVersion else {
+                return .loaded(configuration)
+            }
+            let backupName = backUpConfigurationFile(at: url, suffix: "v\(version)")
+            migrate(&configuration, from: version)
+            return .migrated(configuration, fromVersion: version, backupName: backupName)
+        } catch {
+            let backupName = backUpConfigurationFile(at: url, suffix: "unreadable")
+            return .failed(backupName: backupName, errorDescription: error.localizedDescription)
+        }
+    }
+
+    /// Copies the configuration file aside before a migration or a failed
+    /// decode rewrites it, so there is always a manual restore path.
+    private static func backUpConfigurationFile(at url: URL, suffix: String) -> String? {
+        let backupURL = url.deletingLastPathComponent()
+            .appendingPathComponent("configuration.\(suffix).backup.json")
+        do {
+            if FileManager.default.fileExists(atPath: backupURL.path) {
+                try FileManager.default.removeItem(at: backupURL)
+            }
+            try FileManager.default.copyItem(at: url, to: backupURL)
+            return backupURL.lastPathComponent
+        } catch {
+            return nil
+        }
+    }
+
+    private static func migrate(_ configuration: inout MacForgeConfiguration, from version: Int) {
+        // v1 -> v2 introduced explicit schema versioning, the persistent notch
+        // tray, and the onboarding flag. Per-section models already self-heal
+        // missing keys via lenient decoding, so no structural transforms are
+        // needed. Future migrations chain here in ascending version order.
+        configuration.schemaVersion = MacForgeConfiguration.currentSchemaVersion
     }
 }
 

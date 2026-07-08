@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -14,6 +15,11 @@ final class LiveIslandCoordinator: ObservableObject {
     private var refreshCancellable: AnyCancellable?
     private var lastSwitchAt: Date
     private var testSnapshot: LiveIslandSnapshot?
+    private var pushedSnapshots: [String: LiveIslandSnapshot] = [:]
+    private var refreshInFlight = false
+    private var isSuspendedForSleep = false
+    private var tickCount = 0
+    private var sleepObservers: [NSObjectProtocol] = []
 
     init(
         settings: LiveIslandSettings = .default,
@@ -40,7 +46,8 @@ final class LiveIslandCoordinator: ObservableObject {
             SpotifyProvider(),
             QuickTimeProvider(),
             BrowserMediaProvider(),
-            GenericMediaAppProvider()
+            GenericMediaAppProvider(),
+            CalendarAgendaProvider()
         ]
     }
 
@@ -51,11 +58,12 @@ final class LiveIslandCoordinator: ObservableObject {
 
     func start() {
         refreshCancellable?.cancel()
+        registerSleepObserversIfNeeded()
         refreshCancellable = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 Task { @MainActor in
-                    await self?.refresh()
+                    await self?.tick()
                 }
             }
         Task { await refresh() }
@@ -64,6 +72,49 @@ final class LiveIslandCoordinator: ObservableObject {
     func stop() {
         refreshCancellable?.cancel()
         refreshCancellable = nil
+    }
+
+    /// One timer tick. Polls at 1 Hz while anything is live, but backs off to
+    /// every third tick when the island is idle and pauses entirely while the
+    /// screens are asleep, so an idle Mac isn't firing Apple events all day.
+    private func tick() async {
+        guard !isSuspendedForSleep else { return }
+        tickCount &+= 1
+        if currentSnapshot.kind == .idle, testSnapshot == nil, pushedSnapshots.isEmpty, tickCount % 3 != 0 {
+            return
+        }
+        await refresh()
+    }
+
+    /// Immediately surfaces an externally generated snapshot (volume HUD,
+    /// bridge messages) without waiting for the next poll. Pushed snapshots
+    /// compete in the normal priority arbitration and drop out when they
+    /// expire.
+    func push(_ snapshot: LiveIslandSnapshot) {
+        pushedSnapshots[snapshot.providerID] = snapshot
+        Task { await refresh() }
+    }
+
+    private func registerSleepObserversIfNeeded() {
+        guard sleepObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let sleepNames: [Notification.Name] = [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification]
+        let wakeNames: [Notification.Name] = [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification]
+        for name in sleepNames {
+            sleepObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.isSuspendedForSleep = true
+                }
+            })
+        }
+        for name in wakeNames {
+            sleepObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.isSuspendedForSleep = false
+                    await self?.refresh()
+                }
+            })
+        }
     }
 
     func startTimer(minutes: Int) {
@@ -150,10 +201,28 @@ final class LiveIslandCoordinator: ObservableObject {
         return result
     }
 
+    /// Jumps the active source to an absolute position (expanded-view
+    /// scrubber drag).
+    func seekCurrent(to seconds: TimeInterval) async -> CommandResult {
+        guard let provider = providers.first(where: { $0.id == currentSnapshot.providerID }) else {
+            return .failure("Live Island", "The active provider is no longer available.")
+        }
+        let result = await provider.seek(to: seconds)
+        await refresh()
+        return result
+    }
+
     func refresh() async {
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
+        defer { refreshInFlight = false }
+
         let now = nowProvider()
         var candidates: [LiveIslandSnapshot] = []
         var nextDiagnostics: [LiveIslandProviderDiagnostic] = []
+
+        pushedSnapshots = pushedSnapshots.filter { $0.value.isActive(at: now, settings: settings) }
+        candidates.append(contentsOf: pushedSnapshots.values)
 
         if let testSnapshot, testSnapshot.isActive(at: now, settings: settings) {
             candidates.append(testSnapshot)
@@ -227,12 +296,22 @@ final class LiveIslandCoordinator: ObservableObject {
             lastSwitchAt = now
         }
 
-        currentSnapshot = selected
-        diagnostics = nextDiagnostics
+        // Snapshots get a fresh UUID and startedAt every poll, so plain
+        // equality would republish identical content at 1 Hz forever. Only
+        // publish when something the island renders actually changed.
+        if selected.hasVisibleChange(from: currentSnapshot) {
+            currentSnapshot = selected
+        }
+        if settings.providerDiagnosticsEnabled {
+            diagnostics = nextDiagnostics
+        } else if !diagnostics.isEmpty {
+            diagnostics = []
+        }
     }
 
     func clearTransientState() {
         testSnapshot = nil
+        pushedSnapshots = [:]
         timerProvider.cancelTimer()
         let now = nowProvider()
         currentSnapshot = .idle(at: now)
@@ -261,7 +340,9 @@ final class LiveIslandCoordinator: ObservableObject {
             return best
         }
 
-        return current
+        // Hold the current provider through the anti-flap window, but hand
+        // back its FRESH candidate so elapsed time and progress keep moving.
+        return activeCandidates.first(where: { $0.providerID == current.providerID }) ?? current
     }
 
     private static func snapshotSort(_ lhs: LiveIslandSnapshot, _ rhs: LiveIslandSnapshot) -> Bool {

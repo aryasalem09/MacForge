@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import EventKit
 import Foundation
 import ServiceManagement
 
@@ -9,15 +10,16 @@ final class PermissionCenter {
 
     func snapshot(
         folderAccessCount: Int,
-        experimentalDockTweaksEnabled: Bool
+        experimentalDockTweaksEnabled: Bool,
+        calendarAgendaEnabled: Bool = false
     ) -> [PermissionState] {
         [
             PermissionState(
                 id: "accessibility",
                 name: "Accessibility",
                 status: accessibilityService.isTrusted() ? .granted : .missing,
-                detail: "Required for reading, moving, and resizing other apps' windows.",
-                isRequired: true
+                detail: "Only needed for the optional window-arranging helpers. MacForge asks the first time you use one.",
+                isRequired: false
             ),
             PermissionState(
                 id: "file-access",
@@ -27,8 +29,17 @@ final class PermissionCenter {
                 isRequired: false
             ),
             PermissionState(
+                id: "calendar",
+                name: "Calendars",
+                status: calendarPermissionStatus(agendaEnabled: calendarAgendaEnabled),
+                detail: calendarAgendaEnabled
+                    ? "Used to show your next event in the island shortly before it starts."
+                    : "Requested only if you enable the Calendar agenda widget.",
+                isRequired: false
+            ),
+            PermissionState(
                 id: "automation",
-                name: "Automation Notes",
+                name: "Automation",
                 status: .disabled,
                 detail: AutomationPermissionNotes.appleEventsUsage,
                 isRequired: false
@@ -52,6 +63,21 @@ final class PermissionCenter {
 
     var accessibilityGranted: Bool {
         accessibilityService.isTrusted()
+    }
+
+    private func calendarPermissionStatus(agendaEnabled: Bool) -> PermissionStatus {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess:
+            return .granted
+        case .denied, .restricted:
+            return agendaEnabled ? .missing : .disabled
+        case .writeOnly:
+            return .limited
+        case .notDetermined:
+            return .disabled
+        @unknown default:
+            return .unknown
+        }
     }
 
     var launchAtLoginEnabled: Bool {

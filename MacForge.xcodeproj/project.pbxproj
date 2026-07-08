@@ -113,6 +113,14 @@
 		0CE0201CCED0228C1FBBADC1 /* FileRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45DC2ED459AA4D5AEBDF3C7 /* FileRule.swift */; };
 		FDC36CB3EF9D57A515421828 /* FolderShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/FolderShortcut.swift"; sourceTree = "<group>"; };
 		FE9129F9A8A6DE5C66EF2D4E /* FolderShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDC36CB3EF9D57A515421828 /* FolderShortcut.swift */; };
+		AA10000000000000000000A1 /* NotchTrayItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/NotchTrayItem.swift"; sourceTree = "<group>"; };
+		AA10000000000000000000B1 /* NotchTrayItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000000A1 /* NotchTrayItem.swift */; };
+		AA10000000000000000000A2 /* CalendarAgendaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/CalendarAgendaProvider.swift"; sourceTree = "<group>"; };
+		AA10000000000000000000B2 /* CalendarAgendaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000000A2 /* CalendarAgendaProvider.swift */; };
+		AA10000000000000000000A3 /* VolumeHUDCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/VolumeHUDCenter.swift"; sourceTree = "<group>"; };
+		AA10000000000000000000B3 /* VolumeHUDCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000000A3 /* VolumeHUDCenter.swift */; };
+		AA10000000000000000000A4 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UI/Onboarding/OnboardingView.swift"; sourceTree = "<group>"; };
+		AA10000000000000000000B4 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000000A4 /* OnboardingView.swift */; };
 		8400FCEAE032C7C020EFA060 /* NotchShelfConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/NotchShelfConfig.swift"; sourceTree = "<group>"; };
 		AF6E2510C6495042B876D629 /* NotchShelfConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8400FCEAE032C7C020EFA060 /* NotchShelfConfig.swift */; };
 		DCB031AC3D3A556E824281F9 /* PermissionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models/PermissionState.swift"; sourceTree = "<group>"; };
@@ -270,6 +278,10 @@
 				2BA56321F437A389AAE56DD2,
 				C45DC2ED459AA4D5AEBDF3C7,
 				FDC36CB3EF9D57A515421828,
+				AA10000000000000000000A1,
+				AA10000000000000000000A2,
+				AA10000000000000000000A3,
+				AA10000000000000000000A4,
 				8400FCEAE032C7C020EFA060,
 				DCB031AC3D3A556E824281F9,
 				9A915A87B05C472EE1A7E7E2,
@@ -402,6 +414,10 @@
 				2A0ADED01283850D6815FF4C,
 				0CE0201CCED0228C1FBBADC1,
 				FE9129F9A8A6DE5C66EF2D4E,
+				AA10000000000000000000B1,
+				AA10000000000000000000B2,
+				AA10000000000000000000B3,
+				AA10000000000000000000B4,
 				AF6E2510C6495042B876D629,
 				834C09F175795779FDAD757F,
 				C8007D3673C0BB3B07F76511,
@@ -565,13 +581,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MacForge;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge does not automate other apps by default. If enabled later, macOS will request consent first.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge reads now-playing info and sends play/pause/skip to media apps you enable (Music, Spotify, QuickTime, browsers). macOS asks for consent per app first.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacForge shows your next calendar event in the Notch Island shortly before it starts. Access is requested only if you enable the Calendar widget.";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Arya Salem";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.aryasalem.MacForge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -594,13 +611,14 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MacForge;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge does not automate other apps by default. If enabled later, macOS will request consent first.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge reads now-playing info and sends play/pause/skip to media apps you enable (Music, Spotify, QuickTime, browsers). macOS asks for consent per app first.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacForge shows your next calendar event in the Notch Island shortly before it starts. Access is requested only if you enable the Calendar widget.";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Arya Salem";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.aryasalem.MacForge;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -618,7 +636,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.aryasalem.MacForgeTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -636,7 +654,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks";
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.aryasalem.MacForgeTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;

@@ -3,6 +3,15 @@ import SwiftUI
 struct NotchShelfSettingsView: View {
     @EnvironmentObject private var environment: AppEnvironment
 
+    /// Routing enablement through the environment lets the calendar toggle
+    /// trigger the permission request at the moment the feature turns on.
+    private var calendarAgendaBinding: Binding<Bool> {
+        Binding(
+            get: { environment.liveIslandSettings.calendarAgendaEnabled },
+            set: { environment.setCalendarAgendaEnabled($0) }
+        )
+    }
+
     var body: some View {
         Form {
             Section {
@@ -143,6 +152,9 @@ struct NotchShelfSettingsView: View {
                 Toggle("Browser media hints", isOn: $environment.liveIslandSettings.browserMediaHintsEnabled)
                 Toggle("Downloads watcher", isOn: $environment.liveIslandSettings.downloadsWatcherEnabled)
                 Toggle("Timers", isOn: $environment.liveIslandSettings.timersEnabled)
+                Toggle("Calendar agenda", isOn: calendarAgendaBinding)
+                Toggle("Volume HUD in island", isOn: $environment.liveIslandSettings.volumeHUDEnabled)
+                Toggle("Other media apps (TV, VLC, IINA)", isOn: $environment.liveIslandSettings.genericMediaEnabled)
                 Toggle("Keep media visible while playing", isOn: $environment.liveIslandSettings.keepMediaVisibleWhilePlaying)
                 Toggle("Show artwork", isOn: $environment.liveIslandSettings.showArtwork)
                 Toggle("Show battery in island", isOn: $environment.liveIslandSettings.showBatteryInIsland)
@@ -151,7 +163,32 @@ struct NotchShelfSettingsView: View {
             } header: {
                 Text("Live Island Sources")
             } footer: {
-                Text("Music, Spotify, and QuickTime use public Automation with macOS consent. Browser hints use active tab title and URL only when enabled.")
+                Text("Music, Spotify, and QuickTime use public Automation with macOS consent. Browser hints use active tab title and URL only when enabled. Calendar asks for access only when you turn it on. The volume HUD is fully local — no permissions.")
+            }
+
+            Section {
+                Picker("Keep files", selection: $environment.trayRetentionMinutes) {
+                    Text("Until removed").tag(0.0)
+                    Text("For 1 hour").tag(60.0)
+                    Text("For 8 hours").tag(480.0)
+                    Text("For 1 day").tag(1440.0)
+                    Text("For 1 week").tag(10080.0)
+                }
+                LabeledContent("Files in tray", value: "\(environment.notchTrayItems.count)")
+                HStack {
+                    Button("AirDrop All", systemImage: "square.and.arrow.up") {
+                        environment.airDropNotchTrayItems(environment.notchTrayItems)
+                    }
+                    .disabled(environment.notchTrayItems.isEmpty)
+                    Button("Clear Tray", systemImage: "trash") {
+                        environment.clearNotchFileTray()
+                    }
+                    .disabled(environment.notchTrayItems.isEmpty)
+                }
+            } header: {
+                Text("File Tray")
+            } footer: {
+                Text("Files dropped on the island stay in the Tray tab across relaunches. The retention window removes older files automatically; \u{201C}Until removed\u{201D} keeps everything.")
             }
 
             Section("Downloads") {
@@ -256,8 +293,6 @@ struct NotchShelfSettingsView: View {
     private var diagnosticsSection: some View {
         Section("Diagnostics") {
             LabeledContent("Build", value: MacForgeBuildInfo.label)
-            LabeledContent("Branch", value: MacForgeBuildInfo.branch)
-            LabeledContent("Build Date", value: MacForgeBuildInfo.buildDate)
             LabeledContent("Bundle", value: environment.buildInfo.bundlePath)
             LabeledContent("Config", value: environment.configurationPath)
             LabeledContent("Panel", value: environment.notchShelfWindowController.currentPanelFrame.map { format($0) } ?? "none")

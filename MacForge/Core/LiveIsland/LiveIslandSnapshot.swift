@@ -8,6 +8,8 @@ enum LiveIslandSnapshotKind: String, Codable, CaseIterable, Hashable {
     case genericMedia
     case download
     case timer
+    case calendar
+    case hud
     case task
     case error
 }
@@ -93,6 +95,9 @@ struct LiveIslandSnapshot: Identifiable, Codable, Hashable {
     var expiresAt: Date?
     var isError: Bool
     var actions: [LiveIslandAction]
+    /// Whether the source can jump to an arbitrary position (drag-to-seek on
+    /// the expanded scrubber).
+    var supportsScrubbing: Bool
 
     init(
         id: UUID = UUID(),
@@ -114,7 +119,8 @@ struct LiveIslandSnapshot: Identifiable, Codable, Hashable {
         startedAt: Date = Date(),
         expiresAt: Date? = nil,
         isError: Bool = false,
-        actions: [LiveIslandAction] = []
+        actions: [LiveIslandAction] = [],
+        supportsScrubbing: Bool = false
     ) {
         self.id = id
         self.providerID = providerID
@@ -136,6 +142,7 @@ struct LiveIslandSnapshot: Identifiable, Codable, Hashable {
         self.expiresAt = expiresAt
         self.isError = isError
         self.actions = actions
+        self.supportsScrubbing = supportsScrubbing
     }
 
     static func idle(at date: Date = Date()) -> LiveIslandSnapshot {
@@ -185,11 +192,32 @@ struct LiveIslandSnapshot: Identifiable, Codable, Hashable {
         case .genericMedia:
             copy.title = "Media app active"
             copy.subtitle = appName ?? providerName
+        case .calendar:
+            copy.title = "Upcoming event"
         default:
             break
         }
 
         return copy
+    }
+
+    /// Whether swapping `other` for this snapshot changes anything the island
+    /// actually renders. Every poll constructs snapshots with a fresh `id` and
+    /// `startedAt`, so plain equality is useless for change detection — this
+    /// compares only user-visible content (rounded to what the UI can show).
+    func hasVisibleChange(from other: LiveIslandSnapshot) -> Bool {
+        providerID != other.providerID
+            || kind != other.kind
+            || title != other.title
+            || subtitle != other.subtitle
+            || symbolName != other.symbolName
+            || playbackState != other.playbackState
+            || isError != other.isError
+            || artworkURL != other.artworkURL
+            || actions != other.actions
+            || elapsedTime.map { Int($0.rounded()) } != other.elapsedTime.map { Int($0.rounded()) }
+            || duration.map { Int($0.rounded()) } != other.duration.map { Int($0.rounded()) }
+            || progress.map { Int(($0 * 200).rounded()) } != other.progress.map { Int(($0 * 200).rounded()) }
     }
 
     private static func progress(elapsedTime: TimeInterval?, duration: TimeInterval?) -> Double? {

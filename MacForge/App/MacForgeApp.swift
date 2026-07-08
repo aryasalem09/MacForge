@@ -9,6 +9,9 @@ struct MacForgeApp: App {
         WindowGroup("MacForge", id: "main") {
             ContentView()
                 .environmentObject(environment)
+                .environmentObject(environment.liveIslandCoordinator)
+                .environmentObject(environment.agentActivityCenter)
+                .environmentObject(environment.notchIslandActivityCenter)
                 .onAppear {
                     environment.refreshPermissions()
                     environment.refreshWallpaperStates()

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -5,6 +6,7 @@ import UniformTypeIdentifiers
 /// expanded island.
 struct NotchToolsView: View {
     @EnvironmentObject private var environment: AppEnvironment
+    @State private var customTimerMinutes = 15
 
     private var accessibilityGranted: Bool {
         environment.permissionStates.first { $0.id == "accessibility" }?.status == .granted
@@ -43,6 +45,23 @@ struct NotchToolsView: View {
                         timerButton(minutes: 5)
                         timerButton(minutes: 10)
                         timerButton(minutes: 25)
+                        Divider().frame(height: 16)
+                        Stepper(value: $customTimerMinutes, in: 1...180, step: customTimerMinutes >= 30 ? 15 : 5) {
+                            Text("\(customTimerMinutes) min")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.85))
+                                .frame(minWidth: 46, alignment: .trailing)
+                        }
+                        .controlSize(.small)
+                        Button {
+                            environment.startLiveIslandTimer(minutes: customTimerMinutes)
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.mint)
+                        .help("Start \(customTimerMinutes)-minute timer")
+                        .accessibilityLabel("Start custom timer")
                     }
                 }
             }
@@ -137,7 +156,8 @@ struct NotchToolsView: View {
 }
 
 /// A persistent drag-and-drop file shelf — the "Tray" tab of the expanded
-/// island, matching the NotchNook/DynamicLake file tray.
+/// island, matching the NotchNook/DynamicLake file tray. Files survive
+/// relaunches via bookmarks and honor the configurable retention window.
 struct NotchTrayView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @State private var isDropTargeted = false
@@ -150,14 +170,25 @@ struct NotchTrayView: View {
                     .foregroundStyle(.white.opacity(0.72))
                 Spacer()
                 Button {
+                    environment.airDropNotchTrayItems(environment.notchTrayItems)
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .frame(width: 24, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(environment.notchTrayItems.isEmpty ? 0.34 : 0.82))
+                .disabled(environment.notchTrayItems.isEmpty)
+                .help("AirDrop all tray files")
+                .accessibilityLabel("AirDrop all tray files")
+                Button {
                     environment.clearNotchFileTray()
                 } label: {
                     Image(systemName: "trash")
                         .frame(width: 24, height: 22)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(environment.notchFileTrayItems.isEmpty ? 0.34 : 0.82))
-                .disabled(environment.notchFileTrayItems.isEmpty)
+                .foregroundStyle(.white.opacity(environment.notchTrayItems.isEmpty ? 0.34 : 0.82))
+                .disabled(environment.notchTrayItems.isEmpty)
                 .help("Clear tray")
                 .accessibilityLabel("Clear tray")
             }
@@ -176,42 +207,24 @@ struct NotchTrayView: View {
             )
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted, perform: handleDrop)
 
-            if environment.notchFileTrayItems.isEmpty {
+            if environment.notchTrayItems.isEmpty {
                 Label("No files yet", systemImage: "doc.on.doc")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 6) {
-                        ForEach(environment.notchFileTrayItems, id: \.self) { url in
-                            Button {
-                                environment.revealNotchFileTrayItem(url)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "doc")
-                                        .foregroundStyle(.mint)
-                                    Text(url.lastPathComponent)
-                                        .foregroundStyle(.white)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Image(systemName: "arrow.up.forward.app")
-                                        .foregroundStyle(.white.opacity(0.4))
-                                }
-                                .font(.caption)
-                                .padding(8)
-                                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain)
-                            .help(url.path)
-                            .draggable(url)
+                        ForEach(environment.notchTrayItems) { item in
+                            NotchTrayRowView(item: item)
                         }
                     }
                 }
             }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: environment.notchTrayItems)
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+    fileprivate func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                 let url: URL?
@@ -232,5 +245,79 @@ struct NotchTrayView: View {
         }
 
         return true
+    }
+}
+
+/// A single tray file: click opens it, drag pulls it back out, and the
+/// trailing controls cover AirDrop, reveal, and remove.
+private struct NotchTrayRowView: View {
+    var item: NotchTrayItem
+
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: item.path))
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(item.addedAt, format: .relative(presentation: .named))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            Spacer(minLength: 0)
+            if isHovering {
+                trayRowButton("square.and.arrow.up", help: "AirDrop") {
+                    environment.airDropNotchTrayItems([item])
+                }
+                trayRowButton("magnifyingglass", help: "Reveal in Finder") {
+                    environment.revealNotchTrayItem(item)
+                }
+                trayRowButton("xmark", help: "Remove from tray") {
+                    environment.removeNotchTrayItem(item)
+                }
+            }
+        }
+        .font(.caption)
+        .padding(8)
+        .background(.white.opacity(isHovering ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture {
+            environment.openNotchTrayItem(item)
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovering = hovering
+            }
+        }
+        .help(item.path)
+        .draggable(item.resolveURL() ?? URL(fileURLWithPath: item.path))
+        .contextMenu {
+            Button("Open") { environment.openNotchTrayItem(item) }
+            Button("Reveal in Finder") { environment.revealNotchTrayItem(item) }
+            Button("Send with AirDrop") { environment.airDropNotchTrayItems([item]) }
+            Divider()
+            Button("Remove from Tray", role: .destructive) { environment.removeNotchTrayItem(item) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.name), added \(item.addedAt.formatted(.relative(presentation: .named)))")
+    }
+
+    private func trayRowButton(_ symbolName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbolName)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 20)
+                .background(.white.opacity(0.1), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.85))
+        .help(help)
+        .accessibilityLabel(help)
     }
 }

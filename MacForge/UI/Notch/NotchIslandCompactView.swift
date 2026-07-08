@@ -69,13 +69,15 @@ struct NotchIslandCompactView: View {
                 isAnimating: snapshot.playbackState.isPlaying,
                 tint: snapshot.isError ? .orange : .mint
             )
-        case .timer:
+        case .timer, .calendar:
             Text(snapshot.subtitle.isEmpty ? snapshot.title : snapshot.subtitle)
                 .font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.mint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 2)
+        case .hud:
+            HUDLevelBarView(level: snapshot.progress ?? 0, symbolName: snapshot.symbolName)
         case .download, .task:
             miniProgress(snapshot.progress, isError: snapshot.isError)
         case .error:
@@ -182,6 +184,50 @@ struct AgentEarProgress: View {
     }
 }
 
+/// Icons resolved from running apps, cached by bundle identifier so the
+/// compact ear doesn't rescan the full process list on every render.
+enum AppIconCache {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func icon(forBundleIdentifier bundleIdentifier: String) -> NSImage? {
+        if let cached = cache.object(forKey: bundleIdentifier as NSString) {
+            return cached
+        }
+        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }),
+              let icon = app.icon else {
+            return nil
+        }
+        cache.setObject(icon, forKey: bundleIdentifier as NSString)
+        return icon
+    }
+}
+
+/// The compact HUD readout: a tiny level bar next to the state symbol,
+/// mirroring the system volume indicator inside the island's right ear.
+struct HUDLevelBarView: View {
+    var level: Double
+    var symbolName: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbolName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.22))
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: max(proxy.size.width * level.clamped(to: 0...1), level > 0 ? 3 : 0))
+                }
+            }
+            .frame(width: 34, height: 4)
+        }
+        .padding(.horizontal, 2)
+    }
+}
+
 struct LiveIslandIconView: View {
     var snapshot: LiveIslandSnapshot
     var size: CGFloat
@@ -189,8 +235,7 @@ struct LiveIslandIconView: View {
     var body: some View {
         ZStack {
             if let bundleIdentifier = snapshot.bundleIdentifier,
-               let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }),
-               let icon = app.icon {
+               let icon = AppIconCache.icon(forBundleIdentifier: bundleIdentifier) {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

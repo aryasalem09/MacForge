@@ -15,9 +15,9 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .dashboard: "Dashboard"
+        case .dashboard: "Overview"
         case .permissions: "Permissions"
-        case .notchShelf: "Notch Shelf"
+        case .notchShelf: "Island & Widgets"
         case .windows: "Windows"
         case .dock: "Dock"
         case .desktop: "Desktop"
@@ -26,6 +26,13 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .settings: "Settings"
         }
     }
+
+    /// Front-page: the notch island product surface.
+    static let notchSection: [SidebarDestination] = [.dashboard, .notchShelf, .permissions]
+    /// The under-the-hood desktop utilities the release strategy keeps off
+    /// the front page.
+    static let helperSection: [SidebarDestination] = [.windows, .dock, .desktop, .files, .presets]
+    static let generalSection: [SidebarDestination] = [.settings]
 
     var symbolName: String {
         switch self {
@@ -75,9 +82,26 @@ struct ContentView: View {
             .navigationTitle((selection ?? .dashboard).title)
         }
         .frame(minWidth: 1020, minHeight: 680)
+        .sheet(isPresented: onboardingBinding) {
+            OnboardingView()
+                .environmentObject(environment)
+        }
         .task {
             environment.refreshPermissions()
             await environment.refreshWindows()
         }
+    }
+
+    /// Presents the welcome flow exactly once; dismissing it in any way
+    /// counts as completing it.
+    private var onboardingBinding: Binding<Bool> {
+        Binding(
+            get: { !environment.hasCompletedOnboarding },
+            set: { presented in
+                if !presented {
+                    environment.hasCompletedOnboarding = true
+                }
+            }
+        )
     }
 }

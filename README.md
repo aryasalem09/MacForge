@@ -1,6 +1,8 @@
 # MacForge
 
-MacForge is a native macOS customization and organization command center for macOS 14 or newer. It is built with SwiftUI plus AppKit bridges for system features that SwiftUI does not expose directly.
+[![macOS Build And Test](https://github.com/aryasalem09/MacForge/actions/workflows/macos-build-test.yml/badge.svg)](https://github.com/aryasalem09/MacForge/actions/workflows/macos-build-test.yml)
+
+MacForge turns your MacBook's notch into a Dynamic Island for macOS 14 or newer: now playing, timers, calendar, downloads, a volume HUD, a persistent file tray with AirDrop, and live agent/CLI activity. Desktop helpers (windows, Dock, wallpapers, files, presets) ride along under the hood. It is built with SwiftUI plus AppKit bridges for system features that SwiftUI does not expose directly.
 
 The project is intentionally conservative: MacForge uses public Apple APIs, user-selected files and folders, previews before risky file operations, and clear failures when macOS requires permission or does not expose a safe control surface.
 
@@ -18,8 +20,14 @@ This project was created and locally verified on:
 - Menu bar quick actions for common MacForge workflows.
 - A Notch Island mode with camera-anchored collapsed, compact activity, and expanded panel states using public `NSScreen` geometry and `NSPanel`. The shape morphs like the iPhone Dynamic Island — a rounded panel that grows out of the physical notch.
 - A polished Now Playing card (album artwork, scrubber with elapsed/remaining time, transport controls, waveform) and a tabbed expanded island: **Now / Agents / Tray / Tools**.
-- Provider-based Live Island sources for Apple Music, Spotify, QuickTime, browser media hints, downloads, timers, MacForge tasks, and recent command results.
+- Provider-based Live Island sources for Apple Music, Spotify, QuickTime, browser media hints, downloads (with byte counts and transfer rate), timers, calendar agenda, MacForge tasks, and recent command results.
+- A calendar agenda widget (EventKit): your next event surfaces in the island shortly before it starts. Access is requested only when you turn the widget on.
+- A volume HUD: the island mirrors volume and mute changes instantly via a local CoreAudio listener — no permissions, no key interception.
+- A persistent file tray: dropped files survive relaunches (bookmarks track moved files), honor a configurable retention window, and support AirDrop, open, reveal, remove, and drag-out.
+- A drag-to-seek scrubber on the Now Playing card for Music, Spotify, and QuickTime, plus Spotify album artwork.
+- Timers with preset and custom durations that persist across relaunch and chime on completion.
 - A battery/charging indicator in the island header (public `IOKit` power sources).
+- A first-run welcome flow; permissions are requested only when the matching feature is enabled — never at launch.
 - **Agent & CLI activity**: Claude Code, Codex, builds, deploys, or any terminal job can push live progress and notifications into the notch, split-screen alongside music. See "Agents & CLI activity" below.
 - NotchNook-style practical interactions: idle pill, hover/click/swipe expansion, media controls where supported, a drag-and-drop file tray, and expanded widgets.
 - A Classic Shelf mode for the older wide top-center HUD.
@@ -47,7 +55,10 @@ MacForge also does not permanently delete files. Destructive file workflows must
 
 ## Required Permissions
 
-- Accessibility: required for reading and moving other apps' windows.
+MacForge requests nothing at launch. Each permission below is tied to a feature and requested the moment you enable or use it.
+
+- Accessibility: only for the optional window-arranging helpers; requested on first use.
+- Calendars: only if you enable the Calendar agenda widget (macOS 14 full-access API).
 - File and folder access: granted per user-selected folder or file through the system open panel and persisted with security-scoped bookmarks.
 - Wallpaper images: granted per picked image before a wallpaper preset can apply.
 - Launch at Login: optional, managed through public Service Management APIs.
@@ -142,7 +153,7 @@ Use Settings -> Notch Shelf -> Test Providers -> Force Now Playing Test Card to 
 
 Quit MacForge completely before launching from Xcode. A stale app bundle can keep older Classic Shelf or provider behavior alive even after the branch builds.
 
-Settings -> About and Settings -> Notch Shelf -> Diagnostics show the build label, branch, bundle path, config path, panel frame, and window level. For this branch, confirm the build label is `v0.27-dynamic-notch-island`.
+Settings -> About and Settings -> Notch Shelf -> Diagnostics show the build label (derived from the bundle version), bundle path, config path, panel frame, and window level.
 
 To collect visual evidence after a clean build:
 
@@ -223,8 +234,10 @@ Developer ID or local builds are recommended for the full feature set. A Mac App
 - Richer file-rule editor with destination validation and better action descriptions.
 - Optional signed release configuration.
 - Browser bridge native messaging host registration and extension packaging.
-- Additional widgets such as weather/calendar if implemented with explicit user consent.
+- Additional widgets such as weather if implemented with explicit user consent.
+- Clipboard history and camera mirror as opt-in extras (deliberately deferred from the free core).
 - Localization and accessibility polish.
+- Developer ID signing, notarization, and stapling in CI ahead of a public release.
 
 ## Manual Testing Checklist
 

@@ -8,6 +8,9 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
     var browserMediaHintsEnabled: Bool
     var downloadsWatcherEnabled: Bool
     var timersEnabled: Bool
+    var calendarAgendaEnabled: Bool
+    var volumeHUDEnabled: Bool
+    var genericMediaEnabled: Bool
     var keepMediaVisibleWhilePlaying: Bool
     var showArtwork: Bool
     var privacyMode: Bool
@@ -25,6 +28,9 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         browserMediaHintsEnabled: false,
         downloadsWatcherEnabled: false,
         timersEnabled: true,
+        calendarAgendaEnabled: false,
+        volumeHUDEnabled: true,
+        genericMediaEnabled: false,
         keepMediaVisibleWhilePlaying: true,
         showArtwork: true,
         privacyMode: false,
@@ -43,6 +49,9 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         browserMediaHintsEnabled: Bool,
         downloadsWatcherEnabled: Bool,
         timersEnabled: Bool,
+        calendarAgendaEnabled: Bool = false,
+        volumeHUDEnabled: Bool = true,
+        genericMediaEnabled: Bool = false,
         keepMediaVisibleWhilePlaying: Bool,
         showArtwork: Bool,
         privacyMode: Bool,
@@ -59,6 +68,9 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         self.browserMediaHintsEnabled = browserMediaHintsEnabled
         self.downloadsWatcherEnabled = downloadsWatcherEnabled
         self.timersEnabled = timersEnabled
+        self.calendarAgendaEnabled = calendarAgendaEnabled
+        self.volumeHUDEnabled = volumeHUDEnabled
+        self.genericMediaEnabled = genericMediaEnabled
         self.keepMediaVisibleWhilePlaying = keepMediaVisibleWhilePlaying
         self.showArtwork = showArtwork
         self.privacyMode = privacyMode
@@ -105,6 +117,9 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         browserMediaHintsEnabled = try container.decodeIfPresent(Bool.self, forKey: .browserMediaHintsEnabled) ?? defaults.browserMediaHintsEnabled
         downloadsWatcherEnabled = try container.decodeIfPresent(Bool.self, forKey: .downloadsWatcherEnabled) ?? defaults.downloadsWatcherEnabled
         timersEnabled = try container.decodeIfPresent(Bool.self, forKey: .timersEnabled) ?? defaults.timersEnabled
+        calendarAgendaEnabled = try container.decodeIfPresent(Bool.self, forKey: .calendarAgendaEnabled) ?? defaults.calendarAgendaEnabled
+        volumeHUDEnabled = try container.decodeIfPresent(Bool.self, forKey: .volumeHUDEnabled) ?? defaults.volumeHUDEnabled
+        genericMediaEnabled = try container.decodeIfPresent(Bool.self, forKey: .genericMediaEnabled) ?? defaults.genericMediaEnabled
         keepMediaVisibleWhilePlaying = try container.decodeIfPresent(Bool.self, forKey: .keepMediaVisibleWhilePlaying) ?? defaults.keepMediaVisibleWhilePlaying
         showArtwork = try container.decodeIfPresent(Bool.self, forKey: .showArtwork) ?? defaults.showArtwork
         privacyMode = try container.decodeIfPresent(Bool.self, forKey: .privacyMode) ?? defaults.privacyMode

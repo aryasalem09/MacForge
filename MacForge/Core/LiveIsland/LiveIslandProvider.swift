@@ -10,6 +10,7 @@ protocol LiveIslandProvider {
     func isEnabled(settings: LiveIslandSettings) -> Bool
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot?
     func perform(action: LiveIslandActionKind) async -> CommandResult
+    func seek(to seconds: TimeInterval) async -> CommandResult
 }
 
 extension LiveIslandProvider {
@@ -17,6 +18,10 @@ extension LiveIslandProvider {
 
     func perform(action: LiveIslandActionKind) async -> CommandResult {
         .failure(displayName, "\(action.title) is not available for this source.")
+    }
+
+    func seek(to seconds: TimeInterval) async -> CommandResult {
+        .failure(displayName, "Seeking is not available for this source.")
     }
 }
 
@@ -79,6 +84,21 @@ protocol AppleScriptRunning {
     func run(source: String) -> Result<String, AppleScriptExecutionError>
 }
 
+/// All Apple events go through one serial queue so a slow target app or a
+/// pending Automation consent dialog can never stall the main thread — the
+/// island's hover and spring animations keep running while a poll is stuck.
+private let appleScriptQueue = DispatchQueue(label: "com.aryasalem.MacForge.applescript", qos: .userInitiated)
+
+extension AppleScriptRunning {
+    func runOffMain(source: String) async -> Result<String, AppleScriptExecutionError> {
+        await withCheckedContinuation { continuation in
+            appleScriptQueue.async {
+                continuation.resume(returning: run(source: source))
+            }
+        }
+    }
+}
+
 struct DefaultAppleScriptRunner: AppleScriptRunning {
     func run(source: String) -> Result<String, AppleScriptExecutionError> {
         guard let script = NSAppleScript(source: source) else {
@@ -126,6 +146,8 @@ enum AutomationMediaParser {
         let rawDuration = TimeInterval(clean(parts[5])) ?? 0
         let duration = durationDivisor == 0 ? rawDuration : rawDuration / durationDivisor
         let subtitle = [artist, album].filter { !$0.isEmpty }.joined(separator: " - ")
+        // Optional 7th field: an artwork URL (Spotify exposes one directly).
+        let artworkURL: URL? = parts.count >= 7 ? URL(string: clean(parts[6])) : nil
 
         return LiveIslandSnapshot(
             providerID: providerID,
@@ -140,6 +162,7 @@ enum AutomationMediaParser {
             playbackState: playbackState,
             elapsedTime: elapsed,
             duration: duration > 0 ? duration : nil,
+            artworkURL: artworkURL?.scheme?.hasPrefix("http") == true ? artworkURL : nil,
             startedAt: now,
             expiresAt: playbackState == .playing ? nil : now.addingTimeInterval(12),
             actions: [
@@ -147,7 +170,8 @@ enum AutomationMediaParser {
                 LiveIslandAction(.playPause),
                 LiveIslandAction(.next),
                 LiveIslandAction(.openSource)
-            ]
+            ],
+            supportsScrubbing: duration > 0
         )
     }
 
@@ -180,7 +204,8 @@ enum AutomationMediaParser {
             actions: [
                 LiveIslandAction(.playPause),
                 LiveIslandAction(.openSource)
-            ]
+            ],
+            supportsScrubbing: duration > 0
         )
     }
 
@@ -211,6 +236,7 @@ final class AppleMusicProvider: LiveIslandProvider {
     private(set) var latestDiagnostic: LiveIslandProviderDiagnostic?
 
     private let runner: AppleScriptRunning
+    private var reportedPermissionError = false
 
     init(runner: AppleScriptRunning = DefaultAppleScriptRunner()) {
         self.runner = runner
@@ -231,7 +257,7 @@ final class AppleMusicProvider: LiveIslandProvider {
             return nil
         }
 
-        switch runner.run(source: Self.snapshotScript) {
+        switch await runner.runOffMain(source: Self.snapshotScript) {
         case .success(let output):
             let snapshot = AutomationMediaParser.parseMusicLikeOutput(
                 output,
@@ -254,6 +280,7 @@ final class AppleMusicProvider: LiveIslandProvider {
                 snapshot: snapshot,
                 updatedAt: now
             )
+            reportedPermissionError = false
             return snapshot
         case .failure(let error):
             let permissionNeeded = error.isPermissionError
@@ -265,9 +292,18 @@ final class AppleMusicProvider: LiveIslandProvider {
                 permissionNeeded: permissionNeeded,
                 updatedAt: now
             )
-            guard permissionNeeded else { return nil }
+            // Show the consent card once per launch instead of letting a
+            // priority-100 error occupy the island until the user acts; the
+            // sticky diagnostic and Permissions page keep the state visible.
+            guard permissionNeeded, !reportedPermissionError else { return nil }
+            reportedPermissionError = true
             return automationPermissionSnapshot(now: now, appName: "Music", bundleIdentifier: "com.apple.Music")
         }
+    }
+
+    func seek(to seconds: TimeInterval) async -> CommandResult {
+        let script = "tell application \"Music\" to set player position to \(Int(seconds.rounded()))"
+        return automationResult(await runner.runOffMain(source: script), title: "Apple Music", successMessage: "Jumped to \(Int(seconds.rounded()))s.")
     }
 
     func perform(action: LiveIslandActionKind) async -> CommandResult {
@@ -286,7 +322,7 @@ final class AppleMusicProvider: LiveIslandProvider {
             return .failure("Apple Music", "Cancel timer is not available for Music.")
         }
 
-        return automationResult(runner.run(source: script), title: "Apple Music", successMessage: "\(action.title) sent to Music.")
+        return automationResult(await runner.runOffMain(source: script), title: "Apple Music", successMessage: "\(action.title) sent to Music.")
     }
 
     private func automationPermissionSnapshot(now: Date, appName: String, bundleIdentifier: String) -> LiveIslandSnapshot {
@@ -390,6 +426,7 @@ final class SpotifyProvider: LiveIslandProvider {
     let displayName = "Spotify"
 
     private let runner: AppleScriptRunning
+    private var reportedPermissionError = false
 
     init(runner: AppleScriptRunning = DefaultAppleScriptRunner()) {
         self.runner = runner
@@ -402,8 +439,9 @@ final class SpotifyProvider: LiveIslandProvider {
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
         guard Self.isRunning else { return nil }
 
-        switch runner.run(source: Self.snapshotScript) {
+        switch await runner.runOffMain(source: Self.snapshotScript) {
         case .success(let output):
+            reportedPermissionError = false
             return AutomationMediaParser.parseMusicLikeOutput(
                 output,
                 providerID: id,
@@ -416,7 +454,8 @@ final class SpotifyProvider: LiveIslandProvider {
                 now: now
             )
         case .failure(let error):
-            guard error.isPermissionError else { return nil }
+            guard error.isPermissionError, !reportedPermissionError else { return nil }
+            reportedPermissionError = true
             return LiveIslandSnapshot(
                 providerID: id,
                 providerName: displayName,
@@ -451,7 +490,12 @@ final class SpotifyProvider: LiveIslandProvider {
             return .failure("Spotify", "Cancel timer is not available for Spotify.")
         }
 
-        return automationResult(runner.run(source: script), title: "Spotify", successMessage: "\(action.title) sent to Spotify.")
+        return automationResult(await runner.runOffMain(source: script), title: "Spotify", successMessage: "\(action.title) sent to Spotify.")
+    }
+
+    func seek(to seconds: TimeInterval) async -> CommandResult {
+        let script = "tell application \"Spotify\" to set player position to \(Int(seconds.rounded()))"
+        return automationResult(await runner.runOffMain(source: script), title: "Spotify", successMessage: "Jumped to \(Int(seconds.rounded()))s.")
     }
 
     private static var isRunning: Bool {
@@ -471,7 +515,11 @@ final class SpotifyProvider: LiveIslandProvider {
         set albumName to album of currentTrackInfo
         set trackPosition to player position
         set trackDuration to duration of currentTrackInfo
-        return playerState & delimiter & trackName & delimiter & artistName & delimiter & albumName & delimiter & (trackPosition as text) & delimiter & (trackDuration as text)
+        set artworkAddress to ""
+        try
+            set artworkAddress to artwork url of currentTrackInfo
+        end try
+        return playerState & delimiter & trackName & delimiter & artistName & delimiter & albumName & delimiter & (trackPosition as text) & delimiter & (trackDuration as text) & delimiter & artworkAddress
     end tell
     """
 }
@@ -483,6 +531,7 @@ final class QuickTimeProvider: LiveIslandProvider {
     let displayName = "QuickTime"
 
     private let runner: AppleScriptRunning
+    private var reportedPermissionError = false
 
     init(runner: AppleScriptRunning = DefaultAppleScriptRunner()) {
         self.runner = runner
@@ -495,11 +544,13 @@ final class QuickTimeProvider: LiveIslandProvider {
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
         guard Self.isRunning else { return nil }
 
-        switch runner.run(source: Self.snapshotScript) {
+        switch await runner.runOffMain(source: Self.snapshotScript) {
         case .success(let output):
+            reportedPermissionError = false
             return AutomationMediaParser.parseQuickTimeOutput(output, now: now)
         case .failure(let error):
-            guard error.isPermissionError else { return nil }
+            guard error.isPermissionError, !reportedPermissionError else { return nil }
+            reportedPermissionError = true
             return LiveIslandSnapshot(
                 providerID: id,
                 providerName: displayName,
@@ -539,7 +590,18 @@ final class QuickTimeProvider: LiveIslandProvider {
             return .failure("QuickTime", "\(action.title) is not available for QuickTime.")
         }
 
-        return automationResult(runner.run(source: script), title: "QuickTime", successMessage: "\(action.title) sent to QuickTime.")
+        return automationResult(await runner.runOffMain(source: script), title: "QuickTime", successMessage: "\(action.title) sent to QuickTime.")
+    }
+
+    func seek(to seconds: TimeInterval) async -> CommandResult {
+        let script = """
+        tell application "QuickTime Player"
+            if (count of documents) is greater than 0 then
+                set current time of document 1 to \(Int(seconds.rounded()))
+            end if
+        end tell
+        """
+        return automationResult(await runner.runOffMain(source: script), title: "QuickTime", successMessage: "Jumped to \(Int(seconds.rounded()))s.")
     }
 
     private static var isRunning: Bool {
@@ -637,7 +699,7 @@ final class BrowserMediaProvider: LiveIslandProvider {
 
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
         for target in BrowserAutomationTarget.allCases where target.isRunning {
-            switch runner.run(source: target.snapshotScript) {
+            switch await runner.runOffMain(source: target.snapshotScript) {
             case .success(let output):
                 if let hint = BrowserTabHint.parse(output, target: target),
                    hint.looksLikeMedia {
@@ -799,7 +861,7 @@ final class GenericMediaAppProvider: LiveIslandProvider {
     ]
 
     func isEnabled(settings: LiveIslandSettings) -> Bool {
-        settings.enableLiveIslandSources
+        settings.enableLiveIslandSources && settings.genericMediaEnabled
     }
 
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
@@ -861,6 +923,9 @@ final class DownloadsProvider: LiveIslandProvider {
     let displayName = "Downloads"
 
     private var lastFolderURL: URL?
+    private var trackedSizes: [String: (bytes: Int64, at: Date)] = [:]
+    private var lastActiveNames: [String] = []
+    private var completion: (name: String, at: Date)?
 
     func isEnabled(settings: LiveIslandSettings) -> Bool {
         settings.enableLiveIslandSources && settings.downloadsWatcherEnabled && settings.downloadsFolderBookmark != nil
@@ -876,15 +941,56 @@ final class DownloadsProvider: LiveIslandProvider {
             }
         }
 
-        guard let activeDownload = Self.activeDownload(in: folderURL) else { return nil }
+        let downloads = Self.activeDownloads(in: folderURL)
+
+        guard let newest = downloads.first else {
+            // A tracked temp file vanishing means the download finished —
+            // surface that instead of silently blinking out.
+            if let finishedName = lastActiveNames.first {
+                completion = (name: finishedName, at: now)
+                lastActiveNames = []
+                trackedSizes = [:]
+            }
+            if let completion, now < completion.at.addingTimeInterval(6) {
+                return LiveIslandSnapshot(
+                    providerID: id,
+                    providerName: displayName,
+                    kind: .download,
+                    priority: .download,
+                    title: "Download finished",
+                    subtitle: completion.name,
+                    symbolName: "checkmark.circle",
+                    progress: 1,
+                    startedAt: completion.at,
+                    expiresAt: completion.at.addingTimeInterval(6),
+                    actions: [LiveIslandAction(.openSource, title: "Open Downloads")]
+                )
+            }
+            completion = nil
+            return nil
+        }
+
+        completion = nil
+        lastActiveNames = downloads.map(\.displayName)
+
+        var subtitleParts: [String] = [newest.displayName.isEmpty ? "Temporary download file" : newest.displayName]
+        if let bytes = newest.sizeBytes {
+            var detail = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            if let previous = trackedSizes[newest.url.path], now > previous.at, bytes > previous.bytes {
+                let rate = Double(bytes - previous.bytes) / now.timeIntervalSince(previous.at)
+                detail += " at \(ByteCountFormatter.string(fromByteCount: Int64(rate), countStyle: .file))/s"
+            }
+            subtitleParts.append(detail)
+            trackedSizes[newest.url.path] = (bytes: bytes, at: now)
+        }
 
         return LiveIslandSnapshot(
             providerID: id,
             providerName: displayName,
             kind: .download,
             priority: .download,
-            title: "Download active",
-            subtitle: activeDownload.displayName.isEmpty ? "Temporary download file detected" : activeDownload.displayName,
+            title: downloads.count > 1 ? "\(downloads.count) downloads active" : "Downloading",
+            subtitle: subtitleParts.joined(separator: " - "),
             symbolName: "arrow.down.circle",
             progress: nil,
             startedAt: now,
@@ -905,12 +1011,16 @@ final class DownloadsProvider: LiveIslandProvider {
     }
 
     static func activeDownload(in folderURL: URL, fileManager: FileManager = .default) -> ActiveDownload? {
+        activeDownloads(in: folderURL, fileManager: fileManager).first
+    }
+
+    static func activeDownloads(in folderURL: URL, fileManager: FileManager = .default) -> [ActiveDownload] {
         guard let contents = try? fileManager.contentsOfDirectory(
             at: folderURL,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else {
-            return nil
+            return []
         }
 
         let candidates = contents.compactMap { url -> ActiveDownload? in
@@ -926,7 +1036,7 @@ final class DownloadsProvider: LiveIslandProvider {
 
         return candidates.sorted { lhs, rhs in
             (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
-        }.first
+        }
     }
 }
 
@@ -952,7 +1062,15 @@ final class TimerProvider: LiveIslandProvider {
     let id = "timer"
     let displayName = "Timers"
 
-    private var activeTimer: LiveIslandTimer?
+    /// Fired whenever the timer starts, is restored, completes, or is
+    /// cancelled — AppEnvironment persists it so a relaunch resumes countdown.
+    var onTimerChanged: ((LiveIslandTimer?) -> Void)?
+    /// Plays the completion chime; overridable so tests stay silent.
+    var completionSound: () -> Void = {
+        (NSSound(named: "Glass") ?? NSSound(named: "Ping"))?.play()
+    }
+
+    private(set) var activeTimer: LiveIslandTimer?
 
     func isEnabled(settings: LiveIslandSettings) -> Bool {
         settings.enableLiveIslandSources && settings.timersEnabled
@@ -960,10 +1078,21 @@ final class TimerProvider: LiveIslandProvider {
 
     func startTimer(duration: TimeInterval, now: Date = Date()) {
         activeTimer = LiveIslandTimer(duration: duration, startedAt: now)
+        onTimerChanged?(activeTimer)
+    }
+
+    /// Re-arms a timer persisted by a previous launch, keeping its original
+    /// start and end dates.
+    func restoreTimer(_ timer: LiveIslandTimer, now: Date = Date()) {
+        guard timer.endsAt > now else { return }
+        activeTimer = timer
+        onTimerChanged?(activeTimer)
     }
 
     func cancelTimer() {
+        guard activeTimer != nil else { return }
         activeTimer = nil
+        onTimerChanged?(nil)
     }
 
     func snapshot(settings: LiveIslandSettings, now: Date) async -> LiveIslandSnapshot? {
@@ -971,6 +1100,8 @@ final class TimerProvider: LiveIslandProvider {
         let remaining = timer.remaining(at: now)
         guard remaining > 0 else {
             activeTimer = nil
+            onTimerChanged?(nil)
+            completionSound()
             return LiveIslandSnapshot(
                 providerID: id,
                 providerName: displayName,
@@ -995,7 +1126,7 @@ final class TimerProvider: LiveIslandProvider {
             providerName: displayName,
             kind: .timer,
             priority: .timer,
-            title: "Timer",
+            title: "Timer \(Int((timer.duration / 60).rounded())) min",
             subtitle: String(format: "%d:%02d remaining", minutes, seconds),
             symbolName: "timer",
             progress: completed,
