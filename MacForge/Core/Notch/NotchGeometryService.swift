@@ -105,22 +105,20 @@ struct NotchIslandLayout: Hashable, Codable {
     }
 
     /// Window frame for a presentation state, in global screen coordinates.
-    /// Collapsed hugs the notch exactly; larger states reserve margins so the
-    /// SwiftUI shadow renders inside the window instead of being clipped.
+    /// Collapsed and compact hug their shapes exactly (they draw no shadow, so
+    /// the window never covers clickable pixels around the notch); only the
+    /// expanded panel reserves margins for its SwiftUI shadow.
     func panelFrame(for state: NotchIslandPresentationState) -> CGRect {
         let size = shapeSize(for: state)
         let sideMargin: CGFloat
         let bottomMargin: CGFloat
         switch state {
-        case .hidden, .collapsed:
+        case .hidden, .collapsed, .compact:
             sideMargin = 0
             bottomMargin = 0
-        case .compact:
-            sideMargin = 20
-            bottomMargin = 24
         case .expanded:
-            sideMargin = 28
-            bottomMargin = 40
+            sideMargin = 24
+            bottomMargin = 32
         }
 
         let notch = notchFrame.rect
@@ -222,9 +220,12 @@ struct NotchGeometryService {
             height: notch.height
         )
         let maxShapeWidth = screenFrame.width - screenEdgeMargin * 2
+        // Compact stays flush with the menu-bar band — exactly the notch's
+        // height — so the pill never dips into window content below and never
+        // blocks clicks under the menu bar.
         let compactSize = CGSize(
             width: min(collapsedSize.width + CGFloat(NotchIslandLayout.compactEarWidth) * 2, maxShapeWidth),
-            height: notch.height + 8
+            height: notch.height
         )
         let expandedWidth = CGFloat(config.expandedWidth)
             .clamped(to: min(collapsedSize.width + minimumExpandedContentWidth, maxShapeWidth)...maxShapeWidth)

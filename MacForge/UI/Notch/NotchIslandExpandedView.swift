@@ -34,12 +34,19 @@ enum IslandTab: String, CaseIterable, Identifiable {
 /// out content starting below the physical notch band.
 struct NotchIslandExpandedView: View {
     var topContentInset: CGFloat
+    @ObservedObject var model: NotchIslandLayoutModel
 
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
     @EnvironmentObject private var agentCenter: AgentActivityCenter
-    @State private var tab: IslandTab = .now
+
+    /// Tab selection lives on the shared layout model so drops/gestures can
+    /// steer which tab opens before the expanded view exists.
+    private var tab: IslandTab {
+        get { model.activeExpandedTab }
+        nonmutating set { model.activeExpandedTab = newValue }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -198,10 +205,11 @@ struct NotchIslandExpandedView: View {
     }
 
     private func selectDefaultTab() {
+        // Respect a tab that was steered before opening (e.g. a file drop
+        // pre-selects Tray); only auto-pick when we're on the default.
+        guard tab == .now else { return }
         if liveIslandCoordinator.currentSnapshot.kind == .idle, agentCenter.hasActivity {
             tab = .agents
-        } else {
-            tab = .now
         }
     }
 }
@@ -390,7 +398,11 @@ struct ArtworkView: View {
 
     var body: some View {
         Group {
-            if let url = snapshot.artworkURL {
+            if let url = snapshot.artworkURL, let cached = ArtworkImageCache.image(for: url) {
+                // Local artwork (Apple Music fetcher) renders instantly with
+                // no async placeholder flash.
+                Image(nsImage: cached).resizable().aspectRatio(contentMode: .fill)
+            } else if let url = snapshot.artworkURL {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -439,7 +451,7 @@ struct AgentsPanelView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: "terminal")
                     .font(.title3)
@@ -447,28 +459,56 @@ struct AgentsPanelView: View {
                     .frame(width: 40, height: 40)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Pipe your CLIs into the notch")
+                    Text("Agents in your notch")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.white)
-                    Text("Claude Code, Codex, builds, and any terminal job can show progress and notifications here.")
+                    Text("See Claude Code and Codex turns, builds, and any terminal job live — next to your music.")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.6))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text("Append JSON lines to the event log:")
+
+            HStack(spacing: 8) {
+                setupButton(source: "Claude Code", fallbackSymbol: "asterisk") {
+                    environment.installClaudeCodeIntegration()
+                }
+                setupButton(source: "Codex", fallbackSymbol: "chevron.left.forwardslash.chevron.right") {
+                    environment.installCodexIntegration()
+                }
+            }
+
+            Text("Both are one click: MacForge installs a small local hook (your config is backed up first). Any other CLI can append JSON lines to the event log.")
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.5))
-            Text(#"echo '{"source":"Claude Code","title":"Building","progress":0.4,"state":"running"}' >> "$MACFORGE_AGENT_EVENTS""#)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.cyan.opacity(0.9))
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                .textSelection(.enabled)
+                .foregroundStyle(.white.opacity(0.45))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func setupButton(source: String, fallbackSymbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon = AgentSourceIconResolver.icon(forSource: source) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: fallbackSymbol)
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text("Set up \(source)")
+                    .font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .accessibilityLabel("Set up \(source)")
     }
 
     private var footer: some View {
@@ -487,14 +527,17 @@ struct AgentsPanelView: View {
             }
             .buttonStyle(.bordered)
 
-            Button {
-                environment.copyAgentEventLogPath()
-            } label: {
-                Label("Copy path", systemImage: "doc.on.doc").font(.caption)
-            }
-            .buttonStyle(.bordered)
-
             if agentCenter.hasActivity {
+                Menu {
+                    Button("Set up Claude Code") { environment.installClaudeCodeIntegration() }
+                    Button("Set up Codex") { environment.installCodexIntegration() }
+                    Button("Copy event log path") { environment.copyAgentEventLogPath() }
+                } label: {
+                    Label("Connect", systemImage: "link").font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Spacer(minLength: 0)
                 Button {
                     environment.clearAgentActivity()
@@ -503,6 +546,13 @@ struct AgentsPanelView: View {
                 }
                 .buttonStyle(.bordered)
                 .help("Clear agent activity")
+            } else {
+                Button {
+                    environment.copyAgentEventLogPath()
+                } label: {
+                    Label("Copy path", systemImage: "doc.on.doc").font(.caption)
+                }
+                .buttonStyle(.bordered)
             }
         }
     }
@@ -512,13 +562,8 @@ struct AgentRow: View {
     var activity: AgentActivity
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: activity.symbolName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-                .symbolEffect(.pulse, isActive: activity.state == .running)
+        HStack(alignment: .center, spacing: 10) {
+            sourceBadge
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -526,17 +571,24 @@ struct AgentRow: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(activity.source)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(activity.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.4))
                 }
-                if !activity.message.isEmpty {
-                    Text(activity.message)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(activity.source)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(tint.opacity(0.14), in: Capsule())
+                    if !activity.message.isEmpty {
+                        Text(activity.message)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
                 }
                 if let progress = activity.progress, activity.state == .running {
                     ProgressView(value: progress.clamped(to: 0...1))
@@ -548,7 +600,37 @@ struct AgentRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// The reporting app's real icon with a status dot; falls back to a tinted
+    /// state symbol chip for unknown sources.
+    @ViewBuilder
+    private var sourceBadge: some View {
+        if let icon = AgentSourceIconResolver.icon(forSource: activity.source) {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 30, height: 30)
+                .overlay(alignment: .bottomTrailing) {
+                    statusDot
+                }
+        } else {
+            Image(systemName: activity.symbolName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                .symbolEffect(.pulse, isActive: activity.state == .running)
+        }
+    }
+
+    private var statusDot: some View {
+        Circle()
+            .fill(tint)
+            .frame(width: 9, height: 9)
+            .overlay(Circle().stroke(.black, lineWidth: 1.5))
+            .offset(x: 2, y: 2)
     }
 
     private var tint: Color {

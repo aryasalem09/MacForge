@@ -124,6 +124,15 @@ struct NotchShelfSettingsView: View {
         Section {
             Toggle("Show agent & CLI activity", isOn: $environment.liveIslandSettings.agentActivityEnabled)
             HStack {
+                Button("Set up Claude Code", systemImage: "asterisk") {
+                    environment.installClaudeCodeIntegration()
+                }
+                Button("Set up Codex", systemImage: "chevron.left.forwardslash.chevron.right") {
+                    environment.installCodexIntegration()
+                }
+            }
+            .disabled(!environment.liveIslandSettings.agentActivityEnabled)
+            HStack {
                 Button("Run Demo Task", systemImage: "play.fill") {
                     environment.showAgentActivityTest()
                 }
@@ -138,7 +147,7 @@ struct NotchShelfSettingsView: View {
         } header: {
             Text("Agents & CLI")
         } footer: {
-            Text("MacForge watches a local JSON event log so Claude Code, Codex, builds, or any terminal job can show progress and notifications in the notch — alongside music. Append newline-delimited JSON to the log at the copied path (also available as $MACFORGE_AGENT_EVENTS after sourcing Scripts/macforge-notify.sh).")
+            Text("Set up Claude Code or Codex with one click — MacForge installs a small local hook script and updates the tool's config (a backup is written first). Any other CLI can append newline-delimited JSON to the event log at the copied path (also exported as $MACFORGE_AGENT_EVENTS by Scripts/macforge-notify.sh).")
         }
     }
 

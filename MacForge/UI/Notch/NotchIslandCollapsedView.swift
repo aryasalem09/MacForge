@@ -10,7 +10,9 @@ struct NotchAudioBarsView: View {
     private let idleHeight: CGFloat = 4
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 14.0, paused: !isAnimating)) { context in
+        // Continuous timeline (no minimumInterval) so the bars glide at the
+        // display's refresh rate instead of stepping at ~14 fps.
+        TimelineView(.animation(paused: !isAnimating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             HStack(spacing: 2.5) {
                 ForEach(0..<barCount, id: \.self) { index in

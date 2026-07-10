@@ -296,7 +296,13 @@ private struct NotchTrayRowView: View {
             }
         }
         .help(item.path)
-        .draggable(item.resolveURL() ?? URL(fileURLWithPath: item.path))
+        // NSItemProvider(contentsOf:) registers a real file drag — dropping
+        // into Finder/Mail/Slack copies the file, unlike .draggable(URL)
+        // which pastes a link/text in many targets.
+        .onDrag {
+            let url = item.resolveURL() ?? URL(fileURLWithPath: item.path)
+            return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+        }
         .contextMenu {
             Button("Open") { environment.openNotchTrayItem(item) }
             Button("Reveal in Finder") { environment.revealNotchTrayItem(item) }

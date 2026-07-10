@@ -123,18 +123,36 @@ struct NotchIslandCompactView: View {
     }
 }
 
-/// The agent's badge in a compact ear: an app-style tinted icon.
+/// The agent's badge in a compact ear: the reporting app's real icon with a
+/// status dot, falling back to a tinted symbol chip for unknown sources.
 struct AgentEarBadge: View {
     var activity: AgentActivity
     var size: CGFloat
 
     var body: some View {
-        Image(systemName: activity.symbolName)
-            .font(.system(size: max(size * 0.5, 12), weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: size, height: size)
-            .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: size * 0.28))
-            .symbolEffect(.pulse, isActive: activity.state == .running)
+        Group {
+            if let icon = AgentSourceIconResolver.icon(forSource: activity.source) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: size * 0.32, height: size * 0.32)
+                            .overlay(Circle().stroke(.black, lineWidth: 1.2))
+                            .offset(x: 1.5, y: 1.5)
+                    }
+            } else {
+                Image(systemName: activity.symbolName)
+                    .font(.system(size: max(size * 0.5, 12), weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: size, height: size)
+                    .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: size * 0.28))
+                    .symbolEffect(.pulse, isActive: activity.state == .running)
+            }
+        }
+        .accessibilityLabel("\(activity.source), \(activity.title)")
     }
 
     private var tint: Color {
@@ -202,6 +220,53 @@ enum AppIconCache {
     }
 }
 
+/// Resolves an agent "source" string ("Claude Code", "Codex", "deploy") to the
+/// reporting app's icon so agent rows and ears look native instead of sloppy
+/// SF-symbol chips. Running apps win; well-known install paths cover apps that
+/// aren't running; unknown sources fall back to nil (caller shows a symbol).
+enum AgentSourceIconResolver {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    private static let knownAppPaths: [(token: String, paths: [String])] = [
+        ("claude", ["/Applications/Claude.app", "~/Applications/Claude.app"]),
+        ("codex", ["/Applications/Codex.app", "~/Applications/Codex.app"]),
+        ("xcode", ["/Applications/Xcode.app"]),
+        ("terminal", ["/System/Applications/Utilities/Terminal.app"]),
+        ("iterm", ["/Applications/iTerm.app"]),
+    ]
+
+    static func icon(forSource source: String) -> NSImage? {
+        let key = source.lowercased() as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+
+        let lowered = source.lowercased()
+        // A running app whose name appears in the source (or vice versa).
+        if let app = NSWorkspace.shared.runningApplications.first(where: { app in
+            guard app.activationPolicy == .regular, let name = app.localizedName?.lowercased(), !name.isEmpty else { return false }
+            return lowered.contains(name) || name.contains(lowered)
+        }), let icon = app.icon {
+            cache.setObject(icon, forKey: key)
+            return icon
+        }
+
+        // Known install locations for the usual agent apps.
+        for entry in knownAppPaths where lowered.contains(entry.token) {
+            for path in entry.paths {
+                let expanded = NSString(string: path).expandingTildeInPath
+                if FileManager.default.fileExists(atPath: expanded) {
+                    let icon = NSWorkspace.shared.icon(forFile: expanded)
+                    cache.setObject(icon, forKey: key)
+                    return icon
+                }
+            }
+        }
+
+        return nil
+    }
+}
+
 /// The compact HUD readout: a tiny level bar next to the state symbol,
 /// mirroring the system volume indicator inside the island's right ear.
 struct HUDLevelBarView: View {
@@ -228,26 +293,71 @@ struct HUDLevelBarView: View {
     }
 }
 
+/// Album artwork decoded once per URL — file URLs from the Apple Music
+/// fetcher load synchronously (tiny local files); anything else falls through
+/// to AsyncImage in the caller.
+enum ArtworkImageCache {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func image(for url: URL) -> NSImage? {
+        guard url.isFileURL else { return nil }
+        let key = url.path as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+}
+
 struct LiveIslandIconView: View {
     var snapshot: LiveIslandSnapshot
     var size: CGFloat
 
     var body: some View {
         ZStack {
-            if let bundleIdentifier = snapshot.bundleIdentifier,
-               let icon = AppIconCache.icon(forBundleIdentifier: bundleIdentifier) {
-                Image(nsImage: icon)
+            // The specific song's cover first, then the source app icon, then
+            // a symbolic fallback.
+            if let artworkURL = snapshot.artworkURL, let artwork = ArtworkImageCache.image(for: artworkURL) {
+                Image(nsImage: artwork)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .aspectRatio(contentMode: .fill)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
+            } else if let artworkURL = snapshot.artworkURL, artworkURL.scheme?.hasPrefix("http") == true {
+                AsyncImage(url: artworkURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        appIconOrSymbol
+                    }
+                }
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
             } else {
-                Image(systemName: snapshot.symbolName)
-                    .font(.system(size: max(size * 0.52, 12), weight: .semibold))
-                    .foregroundStyle(snapshot.isError ? .orange : .mint)
-                    .frame(width: size, height: size)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: size * 0.24))
+                appIconOrSymbol
             }
+        }
+    }
+
+    @ViewBuilder
+    private var appIconOrSymbol: some View {
+        if let bundleIdentifier = snapshot.bundleIdentifier,
+           let icon = AppIconCache.icon(forBundleIdentifier: bundleIdentifier) {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
+        } else {
+            Image(systemName: snapshot.symbolName)
+                .font(.system(size: max(size * 0.52, 12), weight: .semibold))
+                .foregroundStyle(snapshot.isError ? .orange : .mint)
+                .frame(width: size, height: size)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: size * 0.24))
         }
     }
 }

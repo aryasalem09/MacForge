@@ -70,7 +70,9 @@ final class NotchGeometryServiceTests: XCTestCase {
             layout.collapsedSize.width + NotchIslandLayout.compactEarWidth * 2,
             accuracy: 0.5
         )
-        XCTAssertGreaterThan(layout.compactSize.height, layout.collapsedSize.height)
+        // Compact stays flush with the menu-bar band — exactly the notch's
+        // height — so it never dips into window content below the menu bar.
+        XCTAssertEqual(layout.compactSize.height, layout.collapsedSize.height, accuracy: 0.5)
     }
 
     func testExpandedShapeUsesConfiguredSizeOnLargeDisplays() {
@@ -125,16 +127,18 @@ final class NotchGeometryServiceTests: XCTestCase {
         }
     }
 
-    func testLargerStatesReserveShadowMargins() {
+    func testOnlyExpandedReservesShadowMargins() {
         let layout = service.islandLayout(metrics: notchedMetricsWithAuxiliaryAreas())
 
         let compact = layout.panelFrame(for: .compact)
         let expanded = layout.panelFrame(for: .expanded)
 
-        XCTAssertEqual(compact.width, layout.compactSize.size.width + 40, accuracy: 0.5)
-        XCTAssertEqual(compact.height, layout.compactSize.size.height + 24, accuracy: 0.5)
-        XCTAssertEqual(expanded.width, layout.expandedSize.size.width + 56, accuracy: 0.5)
-        XCTAssertEqual(expanded.height, layout.expandedSize.size.height + 40, accuracy: 0.5)
+        // Collapsed and compact draw no shadow, so their windows hug the shape
+        // exactly and never cover clickable pixels around the notch.
+        XCTAssertEqual(compact.width, layout.compactSize.size.width, accuracy: 0.5)
+        XCTAssertEqual(compact.height, layout.compactSize.size.height, accuracy: 0.5)
+        XCTAssertEqual(expanded.width, layout.expandedSize.size.width + 48, accuracy: 0.5)
+        XCTAssertEqual(expanded.height, layout.expandedSize.size.height + 32, accuracy: 0.5)
     }
 
     func testPanelFramesGrowMonotonicallyAcrossStates() {
@@ -146,7 +150,9 @@ final class NotchGeometryServiceTests: XCTestCase {
 
         XCTAssertLessThan(collapsed.width, compact.width)
         XCTAssertLessThan(compact.width, expanded.width)
-        XCTAssertLessThan(collapsed.height, compact.height)
+        // Compact matches collapsed height (flush menu-bar band); expanded is
+        // strictly taller.
+        XCTAssertEqual(collapsed.height, compact.height, accuracy: 0.5)
         XCTAssertLessThan(compact.height, expanded.height)
         XCTAssertTrue(expanded.contains(collapsed))
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The island silhouette: a panel that hangs flush from the top edge of the
 /// screen with subtly rounded top corners and large, continuous rounded bottom
@@ -64,16 +65,13 @@ struct NotchIslandRootView: View {
         state == .collapsed || state == .hidden
     }
 
-    private var hoverScale: CGFloat {
-        isCollapsed && environment.notchHoverState == .hoverPending ? 1.05 : 1.0
-    }
-
-    /// Bottom corner radius per state. Large, continuous-feeling curves give
-    /// the island the soft NotchNook/Dynamic-Island look the reference shows.
+    /// Bottom corner radius per state. Collapsed and compact stay close to the
+    /// physical notch's own corner radius so the pill reads as "the notch got
+    /// wider" — the expanded panel gets the big soft curves.
     private var bottomRadius: CGFloat {
         switch state {
         case .hidden, .collapsed: 11
-        case .compact: 26
+        case .compact: 14
         case .expanded: 40
         }
     }
@@ -83,7 +81,7 @@ struct NotchIslandRootView: View {
     private var topRadius: CGFloat {
         switch state {
         case .hidden, .collapsed: 6
-        case .compact: 8
+        case .compact: 6
         case .expanded: 10
         }
     }
@@ -101,6 +99,7 @@ struct NotchIslandRootView: View {
         let size = layout.shapeSize(for: state)
         let shape = NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
 
+        let isExpanded = state == .expanded
         return ZStack(alignment: .top) {
             content(layout: layout)
         }
@@ -108,18 +107,20 @@ struct NotchIslandRootView: View {
         .background(shape.fill(islandFill))
         .clipShape(shape)
         .overlay {
-            if !isCollapsed {
+            // Only the expanded panel gets a hairline edge; collapsed and
+            // compact must blend seamlessly into the physical notch — any
+            // stroke or shadow there reads as a grey smudge on light menu bars.
+            if isExpanded {
                 shape.stroke(.white.opacity(0.08), lineWidth: 1)
             }
         }
         .compositingGroup()
         .shadow(
-            color: .black.opacity(isCollapsed ? 0 : 0.5),
-            radius: isCollapsed ? 0 : 14,
+            color: .black.opacity(isExpanded ? 0.44 : 0),
+            radius: isExpanded ? 12 : 0,
             x: 0,
-            y: 5
+            y: 4
         )
-        .scaleEffect(hoverScale, anchor: .top)
         .contentShape(shape)
         .onTapGesture {
             environment.toggleNotchIslandExpansionByClick()
@@ -128,15 +129,32 @@ struct NotchIslandRootView: View {
         .onExitCommand {
             activityCenter.collapse()
         }
+        .onDrop(of: [.fileURL], isTargeted: dropTargetBinding) { providers in
+            environment.handleIslandFileDrop(providers)
+        }
         .overlay(alignment: .bottom) {
             if environment.notchConfig.showPlacementDebugOverlay {
                 debugOverlay(layout: layout)
             }
         }
-        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: state)
-        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: hoverScale)
+        .animation(.spring(response: 0.32, dampingFraction: 0.85), value: state)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Notch Island")
+    }
+
+    /// Dragging a file over the island springs it open on the Tray tab, like
+    /// dropping onto the iPhone Dynamic Island; the drop itself lands in the
+    /// tray from any state.
+    private var dropTargetBinding: Binding<Bool> {
+        Binding(
+            get: { false },
+            set: { targeted in
+                if targeted {
+                    model.activeExpandedTab = .tray
+                    environment.expandNotchIsland()
+                }
+            }
+        )
     }
 
     private var islandFill: AnyShapeStyle {
@@ -162,7 +180,7 @@ struct NotchIslandRootView: View {
             NotchIslandCompactView(layout: layout)
                 .transition(contentTransition)
         case .expanded:
-            NotchIslandExpandedView(topContentInset: layout.notchFrame.rect.height)
+            NotchIslandExpandedView(topContentInset: layout.notchFrame.rect.height, model: model)
                 .transition(contentTransition)
         }
     }

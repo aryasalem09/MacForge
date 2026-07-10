@@ -8,13 +8,16 @@ import SwiftUI
 final class NotchIslandLayoutModel: ObservableObject {
     @Published var layout: NotchIslandLayout?
     @Published var displayState: NotchIslandPresentationState = .collapsed
+    /// Which expanded tab to show; shared so gestures (like dropping a file on
+    /// the collapsed island) can steer the expanded view before it opens.
+    @Published var activeExpandedTab: IslandTab = .now
 }
 
 @MainActor
 final class NotchShelfWindowController {
     /// How long the SwiftUI spring needs before the panel can safely shrink
     /// down to the target frame without clipping the morph animation.
-    private static let shrinkDelay: TimeInterval = 0.6
+    private static let shrinkDelay: TimeInterval = 0.45
 
     private var panel: NotchShelfPanel?
     private var activeStyle: NotchShelfPreferredStyle?
@@ -22,6 +25,7 @@ final class NotchShelfWindowController {
     private let notchDetectionService = NotchDetectionService()
     private let notchGeometryService = NotchGeometryService()
     private var pendingShrink: DispatchWorkItem?
+    private var pendingIslandUpdate: DispatchWorkItem?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var hoverPollTimer: Timer?
@@ -75,6 +79,8 @@ final class NotchShelfWindowController {
     }
 
     func hide() {
+        pendingIslandUpdate?.cancel()
+        pendingIslandUpdate = nil
         pendingShrink?.cancel()
         pendingShrink = nil
         stopHoverMonitoring()
@@ -188,18 +194,30 @@ final class NotchShelfWindowController {
         }
 
         let layout = notchGeometryService.islandLayout(for: screen, config: config)
-        let panel = ensureIslandPanel(
-            config: config,
-            environment: environment,
-            initialFrame: layout.panelFrame(for: state)
-        )
-
-        if layoutModel.layout != layout {
-            layoutModel.layout = layout
-        }
-        transition(panel: panel, to: state, layout: layout)
-        panel.orderFrontRegardless()
         startHoverMonitoring(environment: environment)
+
+        // Defer every window mutation (panel creation, setFrame, @Published
+        // writes) one runloop turn: setFrame lays out the NSHostingView
+        // synchronously, and doing that inside a caller's in-flight SwiftUI
+        // update (e.g. AppEnvironment.init's cascade of @Published writes)
+        // aborts in AttributeGraph. Only the newest update survives.
+        pendingIslandUpdate?.cancel()
+        let work = DispatchWorkItem { [weak self, weak environment] in
+            guard let self, let environment else { return }
+            self.pendingIslandUpdate = nil
+            let panel = self.ensureIslandPanel(
+                config: config,
+                environment: environment,
+                initialFrame: layout.panelFrame(for: state)
+            )
+            if self.layoutModel.layout != layout {
+                self.layoutModel.layout = layout
+            }
+            self.transition(panel: panel, to: state, layout: layout)
+            panel.orderFrontRegardless()
+        }
+        pendingIslandUpdate = work
+        DispatchQueue.main.async(execute: work)
     }
 
     private func ensureIslandPanel(
@@ -239,7 +257,9 @@ final class NotchShelfWindowController {
 
         let union = panel.frame.union(target)
         if panel.frame != union {
-            panel.setFrame(union, display: true)
+            // display: false — let SwiftUI paint on its own schedule instead
+            // of forcing a synchronous redraw that can flash a stale frame.
+            panel.setFrame(union, display: false)
         }
 
         if layoutModel.displayState != state {
@@ -249,7 +269,7 @@ final class NotchShelfWindowController {
         if union != target {
             let shrink = DispatchWorkItem { [weak self] in
                 guard let self, let panel = self.panel else { return }
-                panel.setFrame(target, display: true)
+                panel.setFrame(target, display: false)
                 self.pendingShrink = nil
             }
             pendingShrink = shrink

@@ -318,3 +318,221 @@ final class AgentActivityCenter: ObservableObject {
         )
     }
 }
+
+// MARK: - One-click Claude Code / Codex integration
+
+/// Installs the hook scripts + config entries that make Claude Code and Codex
+/// report turn completions and notifications into the notch. Everything is
+/// local: scripts live in Application Support, and user configs are backed up
+/// before any edit.
+enum AgentIntegrationInstaller {
+    static var binDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("MacForge/bin", isDirectory: true)
+    }
+
+    static var claudeHookScriptURL: URL { binDirectory.appendingPathComponent("macforge-claude-hook.sh") }
+    static var codexNotifyScriptURL: URL { binDirectory.appendingPathComponent("macforge-codex-notify.sh") }
+
+    // MARK: Claude Code
+
+    /// Merges Stop + Notification hooks into ~/.claude/settings.json (backing
+    /// the file up first). Idempotent: skips events that already call MacForge.
+    static func installClaudeCodeHooks(
+        settingsURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+    ) -> CommandResult {
+        do {
+            try installHelperScripts()
+        } catch {
+            return .failure("Claude Code Setup", "Could not install the MacForge hook script.", details: [error.localizedDescription])
+        }
+
+        let fileManager = FileManager.default
+        var root: [String: Any] = [:]
+        if let data = try? Data(contentsOf: settingsURL) {
+            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return .failure("Claude Code Setup", "~/.claude/settings.json exists but is not valid JSON; not touching it.")
+            }
+            root = parsed
+        }
+
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        var changedEvents: [String] = []
+        for event in ["Stop", "Notification"] {
+            var entries = hooks[event] as? [[String: Any]] ?? []
+            let alreadyInstalled = entries.contains { entry in
+                ((entry["hooks"] as? [[String: Any]]) ?? []).contains { hook in
+                    (hook["command"] as? String)?.contains("macforge") == true
+                }
+            }
+            guard !alreadyInstalled else { continue }
+            entries.append([
+                "hooks": [
+                    [
+                        "type": "command",
+                        "command": claudeHookScriptURL.path,
+                    ] as [String: Any]
+                ]
+            ])
+            hooks[event] = entries
+            changedEvents.append(event)
+        }
+
+        guard !changedEvents.isEmpty else {
+            return .success("Claude Code Setup", "MacForge hooks are already installed in ~/.claude/settings.json.")
+        }
+        root["hooks"] = hooks
+
+        do {
+            var backupPath: String?
+            if fileManager.fileExists(atPath: settingsURL.path) {
+                let backup = settingsURL.appendingPathExtension("macforge-backup")
+                try? fileManager.removeItem(at: backup)
+                try fileManager.copyItem(at: settingsURL, to: backup)
+                backupPath = backup.path
+            } else {
+                try fileManager.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            }
+            let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: settingsURL, options: .atomic)
+            var details = ["Hooks added: \(changedEvents.joined(separator: ", "))"]
+            if let backupPath {
+                details.append("Backup: \(backupPath)")
+            }
+            return .success("Claude Code Setup", "Claude Code will now report into the notch (restart Claude Code sessions to pick it up).", details: details)
+        } catch {
+            return .failure("Claude Code Setup", "Could not update ~/.claude/settings.json.", details: [error.localizedDescription])
+        }
+    }
+
+    // MARK: Codex
+
+    /// Points Codex's `notify` hook at MacForge via ~/.codex/config.toml.
+    /// Never rewrites an existing custom notify program.
+    static func installCodexNotify(
+        configURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml")
+    ) -> CommandResult {
+        do {
+            try installHelperScripts()
+        } catch {
+            return .failure("Codex Setup", "Could not install the MacForge notify script.", details: [error.localizedDescription])
+        }
+
+        let fileManager = FileManager.default
+        var existing = ""
+        if let data = try? Data(contentsOf: configURL), let text = String(data: data, encoding: .utf8) {
+            existing = text
+        }
+
+        if existing.contains("macforge") {
+            return .success("Codex Setup", "MacForge notify is already configured in ~/.codex/config.toml.")
+        }
+        if existing.range(of: #"^\s*notify\s*="#, options: .regularExpression) != nil {
+            return .failure(
+                "Codex Setup",
+                "~/.codex/config.toml already sets a custom `notify` program; add MacForge manually.",
+                details: ["Point it at: \(codexNotifyScriptURL.path)"]
+            )
+        }
+
+        do {
+            var backupPath: String?
+            if fileManager.fileExists(atPath: configURL.path) {
+                let backup = configURL.appendingPathExtension("macforge-backup")
+                try? fileManager.removeItem(at: backup)
+                try fileManager.copyItem(at: configURL, to: backup)
+                backupPath = backup.path
+            } else {
+                try fileManager.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            }
+            var updated = existing
+            if !updated.isEmpty, !updated.hasSuffix("\n") {
+                updated += "\n"
+            }
+            updated += "\n# Added by MacForge — turn notifications in the notch\nnotify = [\"\(codexNotifyScriptURL.path)\"]\n"
+            try updated.data(using: .utf8)?.write(to: configURL, options: .atomic)
+            var details = ["notify → \(codexNotifyScriptURL.path)"]
+            if let backupPath {
+                details.append("Backup: \(backupPath)")
+            }
+            return .success("Codex Setup", "Codex will now report turn completions into the notch.", details: details)
+        } catch {
+            return .failure("Codex Setup", "Could not update ~/.codex/config.toml.", details: [error.localizedDescription])
+        }
+    }
+
+    // MARK: Helper scripts
+
+    static func installHelperScripts() throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        try writeExecutable(claudeHookScript, to: claudeHookScriptURL)
+        try writeExecutable(codexNotifyScript, to: codexNotifyScriptURL)
+    }
+
+    private static func writeExecutable(_ content: String, to url: URL) throws {
+        try content.data(using: .utf8)?.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// Claude Code hook: receives the hook JSON on stdin, appends a MacForge
+    /// event line. Field extraction is a permissive sed pull — worst case the
+    /// notch shows a generic title, never a broken line.
+    private static let claudeHookScript = #"""
+    #!/bin/zsh
+    # MacForge ⟷ Claude Code hook (installed by MacForge; safe to delete).
+    LOG="${MACFORGE_AGENT_EVENTS:-$HOME/Library/Application Support/MacForge/agent-events.jsonl}"
+    payload=$(cat 2>/dev/null || true)
+
+    pull() {
+        printf '%s' "$payload" | /usr/bin/sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1
+    }
+
+    event=$(pull hook_event_name)
+    session=$(pull session_id)
+    message=$(pull message)
+
+    case "$event" in
+        Stop)
+            kind="done"; state="success"; title="Turn complete"; body="" ;;
+        Notification)
+            kind="notification"; state="info"; title="${message:-Attention needed}"; body="" ;;
+        *)
+            kind="notification"; state="info"; title="${event:-Claude Code}"; body="${message}" ;;
+    esac
+
+    esc() { printf '%s' "$1" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g' | /usr/bin/tr -d '\n\r'; }
+
+    /bin/mkdir -p "$(dirname "$LOG")"
+    printf '{"id":"claude-%s","source":"Claude Code","kind":"%s","title":"%s","message":"%s","state":"%s"}\n' \
+        "$(esc "${session:-code}")" "$kind" "$(esc "$title")" "$(esc "$body")" "$state" >> "$LOG"
+    """#
+
+    /// Codex notify hook: Codex passes a JSON payload as the last argument.
+    private static let codexNotifyScript = #"""
+    #!/bin/zsh
+    # MacForge ⟷ Codex notify hook (installed by MacForge; safe to delete).
+    LOG="${MACFORGE_AGENT_EVENTS:-$HOME/Library/Application Support/MacForge/agent-events.jsonl}"
+    payload="${@: -1}"
+
+    pull() {
+        printf '%s' "$payload" | /usr/bin/sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1
+    }
+
+    type=$(pull type)
+    message=$(pull last-assistant-message)
+
+    case "$type" in
+        agent-turn-complete)
+            kind="done"; state="success"; title="Turn complete" ;;
+        *)
+            kind="notification"; state="info"; title="${type:-Codex}" ;;
+    esac
+
+    esc() { printf '%s' "$1" | /usr/bin/sed 's/\\/\\\\/g; s/"/\\"/g' | /usr/bin/tr -d '\n\r'; }
+
+    /bin/mkdir -p "$(dirname "$LOG")"
+    printf '{"id":"codex","source":"Codex","kind":"%s","title":"%s","message":"%s","state":"%s"}\n' \
+        "$kind" "$(esc "$title")" "$(esc "${message}")" "$state" >> "$LOG"
+    """#
+}

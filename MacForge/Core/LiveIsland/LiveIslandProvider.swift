@@ -82,6 +82,16 @@ struct AppleScriptExecutionError: Error, Equatable {
 
 protocol AppleScriptRunning {
     func run(source: String) -> Result<String, AppleScriptExecutionError>
+    /// Executes a script whose result is binary (e.g. artwork bytes) instead
+    /// of text. Default implementation reports unsupported so lightweight test
+    /// runners don't need to care.
+    func runForData(source: String) -> Result<Data, AppleScriptExecutionError>
+}
+
+extension AppleScriptRunning {
+    func runForData(source: String) -> Result<Data, AppleScriptExecutionError> {
+        .failure(AppleScriptExecutionError(message: "Binary script results are not supported by this runner.", code: nil))
+    }
 }
 
 /// All Apple events go through one serial queue so a slow target app or a
@@ -94,6 +104,14 @@ extension AppleScriptRunning {
         await withCheckedContinuation { continuation in
             appleScriptQueue.async {
                 continuation.resume(returning: run(source: source))
+            }
+        }
+    }
+
+    func runForDataOffMain(source: String) async -> Result<Data, AppleScriptExecutionError> {
+        await withCheckedContinuation { continuation in
+            appleScriptQueue.async {
+                continuation.resume(returning: runForData(source: source))
             }
         }
     }
@@ -114,6 +132,22 @@ struct DefaultAppleScriptRunner: AppleScriptRunning {
         }
 
         return .success(descriptor.stringValue ?? descriptor.description)
+    }
+
+    func runForData(source: String) -> Result<Data, AppleScriptExecutionError> {
+        guard let script = NSAppleScript(source: source) else {
+            return .failure(AppleScriptExecutionError(message: "The automation script could not be compiled.", code: nil))
+        }
+
+        var errorInfo: NSDictionary?
+        let descriptor = script.executeAndReturnError(&errorInfo)
+        if let errorInfo {
+            let message = errorInfo[NSAppleScript.errorMessage] as? String ?? "Automation failed."
+            let code = errorInfo[NSAppleScript.errorNumber] as? Int
+            return .failure(AppleScriptExecutionError(message: message, code: code))
+        }
+
+        return .success(descriptor.data)
     }
 }
 
@@ -228,6 +262,104 @@ enum AutomationMediaParser {
     }
 }
 
+/// Fetches the current track's album artwork from Music via AppleScript raw
+/// bytes (macOS 15.4+ gates the private MediaRemote framework, so this is the
+/// public-API path), caches it on disk per track, and hands back a file URL
+/// the island's AsyncImage-based views can render.
+@MainActor
+final class AppleMusicArtworkFetcher {
+    private let runner: AppleScriptRunning
+    private var cachedKey: String?
+    private var cachedURL: URL?
+    private var failedKeys: Set<String> = []
+    private var inFlightKey: String?
+
+    init(runner: AppleScriptRunning) {
+        self.runner = runner
+    }
+
+    static var cacheDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("MacForge/Artwork", isDirectory: true)
+    }
+
+    func artworkURL(for snapshot: LiveIslandSnapshot) async -> URL? {
+        let key = "\(snapshot.title)|\(snapshot.subtitle)"
+        if key == cachedKey, let cachedURL,
+           FileManager.default.fileExists(atPath: cachedURL.path) {
+            return cachedURL
+        }
+        guard !failedKeys.contains(key), inFlightKey != key else { return nil }
+
+        inFlightKey = key
+        defer { inFlightKey = nil }
+
+        let result = await runner.runForDataOffMain(source: Self.artworkScript)
+        guard case .success(let data) = result,
+              data.count > 512,
+              NSImage(data: data) != nil else {
+            failedKeys.insert(key)
+            if failedKeys.count > 64 { failedKeys.removeAll() }
+            return nil
+        }
+
+        let directory = Self.cacheDirectory
+        let fileURL = directory.appendingPathComponent(Self.fileName(for: key))
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            return nil
+        }
+
+        cachedKey = key
+        cachedURL = fileURL
+        Self.pruneCache(keeping: 32)
+        return fileURL
+    }
+
+    private static func fileName(for key: String) -> String {
+        // Stable, filesystem-safe name per track (djb2 over UTF-8).
+        var hash: UInt64 = 5381
+        for byte in key.utf8 {
+            hash = (hash &* 33) &+ UInt64(byte)
+        }
+        return String(format: "%016llx.img", hash)
+    }
+
+    private static func pruneCache(keeping limit: Int) {
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ), files.count > limit else { return }
+
+        let sorted = files.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhsDate > rhsDate
+        }
+        for stale in sorted.dropFirst(limit) {
+            try? fileManager.removeItem(at: stale)
+        }
+    }
+
+    private static let artworkScript = """
+    tell application "Music"
+        if player state is stopped then return ""
+        try
+            return raw data of artwork 1 of current track
+        on error
+            try
+                return data of artwork 1 of current track
+            on error
+                return ""
+            end try
+        end try
+    end tell
+    """
+}
+
 final class AppleMusicProvider: LiveIslandProvider {
     nonisolated static let providerID = "apple-music"
 
@@ -236,6 +368,7 @@ final class AppleMusicProvider: LiveIslandProvider {
     private(set) var latestDiagnostic: LiveIslandProviderDiagnostic?
 
     private let runner: AppleScriptRunning
+    private lazy var artworkFetcher = AppleMusicArtworkFetcher(runner: runner)
     private var reportedPermissionError = false
 
     init(runner: AppleScriptRunning = DefaultAppleScriptRunner()) {
@@ -259,7 +392,7 @@ final class AppleMusicProvider: LiveIslandProvider {
 
         switch await runner.runOffMain(source: Self.snapshotScript) {
         case .success(let output):
-            let snapshot = AutomationMediaParser.parseMusicLikeOutput(
+            var snapshot = AutomationMediaParser.parseMusicLikeOutput(
                 output,
                 providerID: id,
                 providerName: displayName,
@@ -269,6 +402,11 @@ final class AppleMusicProvider: LiveIslandProvider {
                 symbolName: "music.note",
                 now: now
             )
+            // Fetch the actual album artwork (cached per track) so the island
+            // shows the song's cover, not just the Music app icon.
+            if let current = snapshot, settings.showArtwork, !settings.privacyMode {
+                snapshot?.artworkURL = await artworkFetcher.artworkURL(for: current)
+            }
             latestDiagnostic = diagnostic(
                 status: snapshot == nil ? "Unavailable" : "Active",
                 appStatus: "Music is running",

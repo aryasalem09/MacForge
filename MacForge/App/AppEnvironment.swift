@@ -561,6 +561,18 @@ final class AppEnvironment: ObservableObject {
         append(.success("Agent Activity", "Copied the agent event log path to the clipboard."))
     }
 
+    /// One-click Claude Code integration: installs the hook script and merges
+    /// Stop/Notification hooks into ~/.claude/settings.json (with backup).
+    func installClaudeCodeIntegration() {
+        append(AgentIntegrationInstaller.installClaudeCodeHooks())
+    }
+
+    /// One-click Codex integration: installs the notify script and points
+    /// ~/.codex/config.toml at it (with backup, never clobbering a custom one).
+    func installCodexIntegration() {
+        append(AgentIntegrationInstaller.installCodexNotify())
+    }
+
     func restoreDockManagedSettings() async {
         let wasEnabled = experimentalDockTweaksEnabled
         if !experimentalDockTweaksEnabled {
@@ -607,6 +619,32 @@ final class AppEnvironment: ObservableObject {
             symbolName: "tray.and.arrow.down",
             duration: notchConfig.autoCollapseDelay
         )
+    }
+
+    /// Accepts a file drag dropped anywhere on the island (any state) and
+    /// files it into the tray. Returns true when at least one provider looks
+    /// like a file so the drop animation completes.
+    func handleIslandFileDrop(_ providers: [NSItemProvider]) -> Bool {
+        var accepted = false
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            accepted = true
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url: URL?
+                if let itemURL = item as? URL {
+                    url = itemURL
+                } else if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else {
+                    url = nil
+                }
+                if let url {
+                    Task { @MainActor in
+                        self.addNotchFileTrayItem(url)
+                    }
+                }
+            }
+        }
+        return accepted
     }
 
     func clearNotchFileTray() {
