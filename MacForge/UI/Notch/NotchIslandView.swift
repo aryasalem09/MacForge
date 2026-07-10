@@ -65,14 +65,20 @@ struct NotchIslandRootView: View {
         state == .collapsed || state == .hidden
     }
 
-    /// Bottom corner radius per state. Collapsed and compact stay close to the
-    /// physical notch's own corner radius so the pill reads as "the notch got
-    /// wider" — the expanded panel gets the big soft curves.
+    /// Bottom corner radius per state. Compact runs at half its height — full
+    /// capsule ends like the iPhone pill — and the expanded panel gets big
+    /// soft curves. Collapsed matches the physical notch so it stays invisible.
     private var bottomRadius: CGFloat {
         switch state {
-        case .hidden, .collapsed: 11
-        case .compact: 14
-        case .expanded: 40
+        case .hidden, .collapsed:
+            return 11
+        case .compact:
+            if let layout = model.layout {
+                return CGFloat(layout.compactSize.height) / 2
+            }
+            return 16
+        case .expanded:
+            return 44
         }
     }
 
@@ -81,8 +87,8 @@ struct NotchIslandRootView: View {
     private var topRadius: CGFloat {
         switch state {
         case .hidden, .collapsed: 6
-        case .compact: 6
-        case .expanded: 10
+        case .compact: 8
+        case .expanded: 12
         }
     }
 
@@ -100,10 +106,18 @@ struct NotchIslandRootView: View {
         let shape = NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
 
         let isExpanded = state == .expanded
+        // Expanded hugs its content: height comes from the content's natural
+        // size (internally capped at the configured maximum) so a short tab
+        // never leaves a slab of blank black below it.
         return ZStack(alignment: .top) {
             content(layout: layout)
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: size.width, height: isExpanded ? nil : size.height)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+            // Plain (non-published) so hover hit-testing tracks the real
+            // rendered height without re-rendering on every animation frame.
+            model.displayedShapeHeight = height
+        }
         .background(shape.fill(islandFill))
         .clipShape(shape)
         .overlay {
@@ -137,7 +151,7 @@ struct NotchIslandRootView: View {
                 debugOverlay(layout: layout)
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.85), value: state)
+        .animation(.spring(response: 0.26, dampingFraction: 0.88), value: state)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Notch Island")
     }
@@ -180,8 +194,12 @@ struct NotchIslandRootView: View {
             NotchIslandCompactView(layout: layout)
                 .transition(contentTransition)
         case .expanded:
-            NotchIslandExpandedView(topContentInset: layout.notchFrame.rect.height, model: model)
-                .transition(contentTransition)
+            NotchIslandExpandedView(
+                topContentInset: layout.notchFrame.rect.height,
+                maxHeight: CGFloat(layout.expandedSize.height),
+                model: model
+            )
+            .transition(contentTransition)
         }
     }
 

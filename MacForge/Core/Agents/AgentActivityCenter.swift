@@ -334,15 +334,37 @@ enum AgentIntegrationInstaller {
     static var claudeHookScriptURL: URL { binDirectory.appendingPathComponent("macforge-claude-hook.sh") }
     static var codexNotifyScriptURL: URL { binDirectory.appendingPathComponent("macforge-codex-notify.sh") }
 
+    static var defaultClaudeSettingsURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+    }
+
+    static var defaultCodexConfigURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml")
+    }
+
+    /// Whether the user's Claude Code settings already route into MacForge —
+    /// drives the "Connected" state on the setup buttons.
+    static func isClaudeCodeConnected(settingsURL: URL = defaultClaudeSettingsURL) -> Bool {
+        guard let text = try? String(contentsOf: settingsURL, encoding: .utf8) else { return false }
+        return text.localizedCaseInsensitiveContains("macforge")
+    }
+
+    static func isCodexConnected(configURL: URL = defaultCodexConfigURL) -> Bool {
+        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
+        return text.localizedCaseInsensitiveContains("macforge")
+    }
+
     // MARK: Claude Code
 
     /// Merges Stop + Notification hooks into ~/.claude/settings.json (backing
     /// the file up first). Idempotent: skips events that already call MacForge.
     static func installClaudeCodeHooks(
-        settingsURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+        settingsURL: URL = defaultClaudeSettingsURL,
+        binDirectory: URL = AgentIntegrationInstaller.binDirectory
     ) -> CommandResult {
+        let scriptURL = binDirectory.appendingPathComponent("macforge-claude-hook.sh")
         do {
-            try installHelperScripts()
+            try installHelperScripts(at: binDirectory)
         } catch {
             return .failure("Claude Code Setup", "Could not install the MacForge hook script.", details: [error.localizedDescription])
         }
@@ -370,7 +392,7 @@ enum AgentIntegrationInstaller {
                 "hooks": [
                     [
                         "type": "command",
-                        "command": claudeHookScriptURL.path,
+                        "command": scriptURL.path,
                     ] as [String: Any]
                 ]
             ])
@@ -410,10 +432,12 @@ enum AgentIntegrationInstaller {
     /// Points Codex's `notify` hook at MacForge via ~/.codex/config.toml.
     /// Never rewrites an existing custom notify program.
     static func installCodexNotify(
-        configURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/config.toml")
+        configURL: URL = defaultCodexConfigURL,
+        binDirectory: URL = AgentIntegrationInstaller.binDirectory
     ) -> CommandResult {
+        let scriptURL = binDirectory.appendingPathComponent("macforge-codex-notify.sh")
         do {
-            try installHelperScripts()
+            try installHelperScripts(at: binDirectory)
         } catch {
             return .failure("Codex Setup", "Could not install the MacForge notify script.", details: [error.localizedDescription])
         }
@@ -427,11 +451,11 @@ enum AgentIntegrationInstaller {
         if existing.contains("macforge") {
             return .success("Codex Setup", "MacForge notify is already configured in ~/.codex/config.toml.")
         }
-        if existing.range(of: #"^\s*notify\s*="#, options: .regularExpression) != nil {
+        if existing.range(of: #"(?m)^\s*notify\s*="#, options: .regularExpression) != nil {
             return .failure(
                 "Codex Setup",
                 "~/.codex/config.toml already sets a custom `notify` program; add MacForge manually.",
-                details: ["Point it at: \(codexNotifyScriptURL.path)"]
+                details: ["Point it at: \(scriptURL.path)"]
             )
         }
 
@@ -449,9 +473,9 @@ enum AgentIntegrationInstaller {
             if !updated.isEmpty, !updated.hasSuffix("\n") {
                 updated += "\n"
             }
-            updated += "\n# Added by MacForge — turn notifications in the notch\nnotify = [\"\(codexNotifyScriptURL.path)\"]\n"
+            updated += "\n# Added by MacForge — turn notifications in the notch\nnotify = [\"\(scriptURL.path)\"]\n"
             try updated.data(using: .utf8)?.write(to: configURL, options: .atomic)
-            var details = ["notify → \(codexNotifyScriptURL.path)"]
+            var details = ["notify → \(scriptURL.path)"]
             if let backupPath {
                 details.append("Backup: \(backupPath)")
             }
@@ -463,11 +487,11 @@ enum AgentIntegrationInstaller {
 
     // MARK: Helper scripts
 
-    static func installHelperScripts() throws {
+    static func installHelperScripts(at directory: URL = AgentIntegrationInstaller.binDirectory) throws {
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
-        try writeExecutable(claudeHookScript, to: claudeHookScriptURL)
-        try writeExecutable(codexNotifyScript, to: codexNotifyScriptURL)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeExecutable(claudeHookScript, to: directory.appendingPathComponent("macforge-claude-hook.sh"))
+        try writeExecutable(codexNotifyScript, to: directory.appendingPathComponent("macforge-codex-notify.sh"))
     }
 
     private static func writeExecutable(_ content: String, to url: URL) throws {

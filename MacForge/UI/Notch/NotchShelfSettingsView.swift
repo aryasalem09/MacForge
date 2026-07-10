@@ -124,14 +124,29 @@ struct NotchShelfSettingsView: View {
         Section {
             Toggle("Show agent & CLI activity", isOn: $environment.liveIslandSettings.agentActivityEnabled)
             HStack {
-                Button("Set up Claude Code", systemImage: "asterisk") {
-                    environment.installClaudeCodeIntegration()
+                if environment.claudeCodeConnected {
+                    Label("Claude Code connected", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Button("Set up Claude Code", systemImage: "asterisk") {
+                        environment.installClaudeCodeIntegration()
+                    }
                 }
-                Button("Set up Codex", systemImage: "chevron.left.forwardslash.chevron.right") {
-                    environment.installCodexIntegration()
+                if environment.codexConnected {
+                    Label("Codex connected", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Button("Set up Codex", systemImage: "chevron.left.forwardslash.chevron.right") {
+                        environment.installCodexIntegration()
+                    }
                 }
             }
             .disabled(!environment.liveIslandSettings.agentActivityEnabled)
+            if let notice = environment.agentSetupNotice {
+                Label(notice, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Button("Run Demo Task", systemImage: "play.fill") {
                     environment.showAgentActivityTest()

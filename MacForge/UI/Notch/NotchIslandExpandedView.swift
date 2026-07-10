@@ -34,12 +34,15 @@ enum IslandTab: String, CaseIterable, Identifiable {
 /// out content starting below the physical notch band.
 struct NotchIslandExpandedView: View {
     var topContentInset: CGFloat
+    var maxHeight: CGFloat
     @ObservedObject var model: NotchIslandLayoutModel
 
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
     @EnvironmentObject private var agentCenter: AgentActivityCenter
+    @State private var contentHeight: CGFloat = 220
+    @State private var chromeHeight: CGFloat = 70
 
     /// Tab selection lives on the shared layout model so drops/gestures can
     /// steer which tab opens before the expanded view exists.
@@ -48,23 +51,41 @@ struct NotchIslandExpandedView: View {
         nonmutating set { model.activeExpandedTab = newValue }
     }
 
+    /// The scroll viewport gets exactly the content's natural height, capped
+    /// so the whole island never exceeds the configured maximum — a short tab
+    /// (few agents, empty tray) shrinks the island instead of leaving a slab
+    /// of blank black space below it.
+    private var scrollHeight: CGFloat {
+        let available = maxHeight - topContentInset - chromeHeight - 10 - 14
+        return max(56, min(contentHeight, available))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: topContentInset)
 
             VStack(spacing: 10) {
-                header
-                tabBar
+                VStack(spacing: 10) {
+                    header
+                    tabBar
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                    chromeHeight = height
+                }
                 ScrollView(.vertical, showsIndicators: false) {
                     tabContent
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 4)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                            contentHeight = height
+                        }
                 }
+                .frame(height: scrollHeight)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
         .onAppear { selectDefaultTab() }
         .accessibilityLabel("Expanded Notch Island")
     }
@@ -470,24 +491,40 @@ struct AgentsPanelView: View {
             }
 
             HStack(spacing: 8) {
-                setupButton(source: "Claude Code", fallbackSymbol: "asterisk") {
+                setupButton(
+                    source: "Claude Code",
+                    fallbackSymbol: "asterisk",
+                    connected: environment.claudeCodeConnected
+                ) {
                     environment.installClaudeCodeIntegration()
                 }
-                setupButton(source: "Codex", fallbackSymbol: "chevron.left.forwardslash.chevron.right") {
+                setupButton(
+                    source: "Codex",
+                    fallbackSymbol: "chevron.left.forwardslash.chevron.right",
+                    connected: environment.codexConnected
+                ) {
                     environment.installCodexIntegration()
                 }
             }
 
-            Text("Both are one click: MacForge installs a small local hook (your config is backed up first). Any other CLI can append JSON lines to the event log.")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.45))
-                .fixedSize(horizontal: false, vertical: true)
+            if let notice = environment.agentSetupNotice {
+                Label(notice, systemImage: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.mint)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("One click: MacForge installs a small local hook (your config is backed up first). Any other CLI can append JSON lines to the event log.")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.45))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(12)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+        .onAppear { environment.refreshAgentIntegrationStatus() }
     }
 
-    private func setupButton(source: String, fallbackSymbol: String, action: @escaping () -> Void) -> some View {
+    private func setupButton(source: String, fallbackSymbol: String, connected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let icon = AgentSourceIconResolver.icon(forSource: source) {
@@ -499,16 +536,25 @@ struct AgentsPanelView: View {
                     Image(systemName: fallbackSymbol)
                         .font(.system(size: 11, weight: .semibold))
                 }
-                Text("Set up \(source)")
-                    .font(.caption.weight(.medium))
+                if connected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.mint)
+                    Text("\(source) connected")
+                        .font(.caption.weight(.medium))
+                } else {
+                    Text("Set up \(source)")
+                        .font(.caption.weight(.medium))
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.white.opacity(0.1), in: Capsule())
+            .background(connected ? Color.mint.opacity(0.14) : Color.white.opacity(0.1), in: Capsule())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
-        .accessibilityLabel("Set up \(source)")
+        .foregroundStyle(connected ? .mint : .white)
+        .disabled(connected)
+        .accessibilityLabel(connected ? "\(source) connected" : "Set up \(source)")
     }
 
     private var footer: some View {

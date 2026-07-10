@@ -290,6 +290,78 @@ final class AgentActivityCenterTests: XCTestCase {
         XCTAssertEqual(center.primary?.progress, 1)
     }
 
+    func testInstallerMergesClaudeHooksAndIsIdempotent() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("macforge-inst-\(UUID().uuidString)")
+        let settings = dir.appendingPathComponent("settings.json")
+        let bin = dir.appendingPathComponent("bin")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // Existing settings with an unrelated hook must be preserved.
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let existing = #"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"/usr/bin/true"}]}]}}"#
+        try existing.data(using: .utf8)!.write(to: settings)
+
+        let first = AgentIntegrationInstaller.installClaudeCodeHooks(settingsURL: settings, binDirectory: bin)
+        XCTAssertTrue(first.success, first.message)
+
+        let data = try Data(contentsOf: settings)
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(root["model"] as? String, "opus", "unrelated keys preserved")
+        let hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        let stop = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        XCTAssertEqual(stop.count, 2, "existing Stop hook preserved, MacForge appended")
+        XCTAssertNotNil(hooks["Notification"], "Notification hook added")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: settings.appendingPathExtension("macforge-backup").path))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: bin.appendingPathComponent("macforge-claude-hook.sh").path))
+        XCTAssertTrue(AgentIntegrationInstaller.isClaudeCodeConnected(settingsURL: settings))
+
+        // Second run must not duplicate anything.
+        let second = AgentIntegrationInstaller.installClaudeCodeHooks(settingsURL: settings, binDirectory: bin)
+        XCTAssertTrue(second.success)
+        let rereadData = try Data(contentsOf: settings)
+        let reread = try XCTUnwrap(JSONSerialization.jsonObject(with: rereadData) as? [String: Any])
+        let rereadHooks = try XCTUnwrap(reread["hooks"] as? [String: Any])
+        XCTAssertEqual((rereadHooks["Stop"] as? [[String: Any]])?.count, 2, "idempotent")
+    }
+
+    func testInstallerRefusesInvalidClaudeSettingsJSON() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("macforge-inst-\(UUID().uuidString)")
+        let settings = dir.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "not json {".data(using: .utf8)!.write(to: settings)
+
+        let result = AgentIntegrationInstaller.installClaudeCodeHooks(
+            settingsURL: settings,
+            binDirectory: dir.appendingPathComponent("bin")
+        )
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "not json {", "invalid file untouched")
+    }
+
+    func testInstallerAddsCodexNotifyButNeverClobbersCustomOne() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("macforge-inst-\(UUID().uuidString)")
+        let config = dir.appendingPathComponent("config.toml")
+        let bin = dir.appendingPathComponent("bin")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "model = \"o3\"\n".data(using: .utf8)!.write(to: config)
+
+        let first = AgentIntegrationInstaller.installCodexNotify(configURL: config, binDirectory: bin)
+        XCTAssertTrue(first.success, first.message)
+        let text = try String(contentsOf: config, encoding: .utf8)
+        XCTAssertTrue(text.contains("model = \"o3\""), "existing config preserved")
+        XCTAssertTrue(text.contains("notify = [\""), "notify added")
+        XCTAssertTrue(AgentIntegrationInstaller.isCodexConnected(configURL: config))
+
+        // A pre-existing custom notify must never be replaced.
+        let custom = dir.appendingPathComponent("custom.toml")
+        try "notify = [\"/my/own/notifier\"]\n".data(using: .utf8)!.write(to: custom)
+        let refused = AgentIntegrationInstaller.installCodexNotify(configURL: custom, binDirectory: bin)
+        XCTAssertFalse(refused.success)
+        XCTAssertTrue(try String(contentsOf: custom, encoding: .utf8).contains("/my/own/notifier"))
+    }
+
     func testPartialLineSplitAcrossWritesIsNotDropped() throws {
         let url = URL(fileURLWithPath: "/tmp/macforge-agent-partial-\(UUID().uuidString).jsonl")
         FileManager.default.createFile(atPath: url.path, contents: nil)

@@ -151,6 +151,13 @@ final class AppEnvironment: ObservableObject {
     }
     @Published var lastPresetTransaction: PresetTransaction?
     @Published private(set) var notchHoverState: NotchHoverVisualState = .idle
+    /// Whether ~/.claude/settings.json and ~/.codex/config.toml route into
+    /// MacForge — drives the persistent "Connected" state on setup buttons.
+    @Published private(set) var claudeCodeConnected = false
+    @Published private(set) var codexConnected = false
+    /// Last setup result message, shown inline next to the setup buttons so
+    /// clicking them always has visible feedback.
+    @Published var agentSetupNotice: String?
     @Published private(set) var notchHoverDiagnostics: [String] = []
 
     let permissionCenter = PermissionCenter()
@@ -289,6 +296,7 @@ final class AppEnvironment: ObservableObject {
         }
         refreshPermissions()
         refreshWallpaperStates()
+        refreshAgentIntegrationStatus()
         startNotchIslandObservation()
         startCommandBusObservation()
         updateShelfAndPersist()
@@ -564,13 +572,26 @@ final class AppEnvironment: ObservableObject {
     /// One-click Claude Code integration: installs the hook script and merges
     /// Stop/Notification hooks into ~/.claude/settings.json (with backup).
     func installClaudeCodeIntegration() {
-        append(AgentIntegrationInstaller.installClaudeCodeHooks())
+        let result = AgentIntegrationInstaller.installClaudeCodeHooks()
+        agentSetupNotice = result.message
+        refreshAgentIntegrationStatus()
+        append(result)
     }
 
     /// One-click Codex integration: installs the notify script and points
     /// ~/.codex/config.toml at it (with backup, never clobbering a custom one).
     func installCodexIntegration() {
-        append(AgentIntegrationInstaller.installCodexNotify())
+        let result = AgentIntegrationInstaller.installCodexNotify()
+        agentSetupNotice = result.message
+        refreshAgentIntegrationStatus()
+        append(result)
+    }
+
+    /// Re-reads whether Claude Code / Codex configs point at MacForge so the
+    /// setup buttons can show a persistent "Connected" state.
+    func refreshAgentIntegrationStatus() {
+        claudeCodeConnected = AgentIntegrationInstaller.isClaudeCodeConnected()
+        codexConnected = AgentIntegrationInstaller.isCodexConnected()
     }
 
     func restoreDockManagedSettings() async {
@@ -1241,7 +1262,9 @@ final class AppEnvironment: ObservableObject {
             case .scheduleExpand:
                 hoverExpandTask?.cancel()
                 hoverExpandTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 120_000_000)
+                    // Short intent delay: fast enough to feel instant, long
+                    // enough that mousing across the top doesn't false-trigger.
+                    try? await Task.sleep(nanoseconds: 90_000_000)
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         self?.handleHoverExpandDelayElapsed()
@@ -1250,7 +1273,9 @@ final class AppEnvironment: ObservableObject {
             case .scheduleCollapse:
                 hoverCollapseTask?.cancel()
                 hoverCollapseTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    // Snappy close after the pointer leaves, with just enough
+                    // grace to survive skimming past the island's edge.
+                    try? await Task.sleep(nanoseconds: 250_000_000)
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         self?.handleHoverCollapseDelayElapsed()

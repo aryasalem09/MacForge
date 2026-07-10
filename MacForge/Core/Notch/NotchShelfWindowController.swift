@@ -11,13 +11,17 @@ final class NotchIslandLayoutModel: ObservableObject {
     /// Which expanded tab to show; shared so gestures (like dropping a file on
     /// the collapsed island) can steer the expanded view before it opens.
     @Published var activeExpandedTab: IslandTab = .now
+    /// The island shape's actual rendered height (content-hugging when
+    /// expanded). Deliberately not @Published: hover hit-testing reads it every
+    /// tick and it changes every frame during the morph.
+    var displayedShapeHeight: CGFloat = 0
 }
 
 @MainActor
 final class NotchShelfWindowController {
     /// How long the SwiftUI spring needs before the panel can safely shrink
     /// down to the target frame without clipping the morph animation.
-    private static let shrinkDelay: TimeInterval = 0.45
+    private static let shrinkDelay: TimeInterval = 0.32
 
     private var panel: NotchShelfPanel?
     private var activeStyle: NotchShelfPreferredStyle?
@@ -162,16 +166,19 @@ final class NotchShelfWindowController {
 
     /// The island shape's current footprint in global screen coordinates,
     /// with a small grace inset while open so edge jitter doesn't flap the
-    /// hover state machine.
+    /// hover state machine. Uses the actual rendered height so the hover zone
+    /// matches a content-hugging expanded shape instead of the configured max.
     private func hoverRect(layout: NotchIslandLayout) -> CGRect {
         let state = layoutModel.displayState
         let size = layout.shapeSize(for: state)
+        let displayed = layoutModel.displayedShapeHeight
+        let height = state == .expanded && displayed > 1 ? min(displayed, size.height) : size.height
         let notch = layout.notchFrame.rect
         let rect = CGRect(
             x: notch.midX - size.width / 2,
-            y: notch.maxY - size.height,
+            y: notch.maxY - height,
             width: size.width,
-            height: size.height
+            height: height
         )
         if state == .compact || state == .expanded {
             return rect.insetBy(dx: -10, dy: -10)
