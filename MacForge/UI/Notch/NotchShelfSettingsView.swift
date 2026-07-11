@@ -90,6 +90,8 @@ struct NotchShelfSettingsView: View {
 
             agentActivitySection
 
+            glanceSection
+
             Section {
                 slider("Expanded width", value: $environment.notchConfig.expandedWidth, range: 480...680, step: 10, suffix: "px") {
                     Int(environment.notchConfig.expandedWidth)
@@ -117,6 +119,65 @@ struct NotchShelfSettingsView: View {
             widgetSection
 
             diagnosticsSection
+        }
+    }
+
+    @State private var weatherQuery = ""
+    @State private var weatherResults: [WeatherLocationResult] = []
+    @State private var weatherSearching = false
+
+    private var glanceSection: some View {
+        Section {
+            Toggle("Clipboard history (Clip tab)", isOn: $environment.liveIslandSettings.clipboardHistoryEnabled)
+            Toggle("Hide island from screenshots & screen shares", isOn: $environment.liveIslandSettings.excludeFromScreenCapture)
+
+            if let name = environment.liveIslandSettings.weatherLocationName,
+               environment.liveIslandSettings.weatherEnabled {
+                HStack {
+                    Label(name, systemImage: "location.fill")
+                    Spacer()
+                    Button("Remove", role: .destructive) {
+                        environment.clearWeatherLocation()
+                    }
+                }
+            } else {
+                HStack {
+                    TextField("Weather city (e.g. San Francisco)", text: $weatherQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { searchWeatherLocations() }
+                    Button("Search") {
+                        searchWeatherLocations()
+                    }
+                    .disabled(weatherQuery.trimmingCharacters(in: .whitespaces).isEmpty || weatherSearching)
+                }
+                if weatherSearching {
+                    ProgressView().controlSize(.small)
+                }
+                ForEach(weatherResults) { result in
+                    Button {
+                        environment.setWeatherLocation(result)
+                        weatherResults = []
+                        weatherQuery = ""
+                    } label: {
+                        Label(result.displayName, systemImage: "mappin.and.ellipse")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                }
+            }
+        } header: {
+            Text("Glance & Privacy")
+        } footer: {
+            Text("Clipboard history stays in memory only and skips anything password managers mark as concealed. Weather uses Open-Meteo with just the city you pick — no location permission, no account. The camera Mirror tab asks for camera access the first time you open it.")
+        }
+    }
+
+    private func searchWeatherLocations() {
+        let query = weatherQuery
+        weatherSearching = true
+        Task { @MainActor in
+            weatherResults = await WeatherGlanceCenter.searchLocations(matching: query)
+            weatherSearching = false
         }
     }
 
@@ -310,7 +371,6 @@ struct NotchShelfSettingsView: View {
             Toggle("Preset button", isOn: $environment.notchConfig.showPresets)
             Toggle("Recent results", isOn: $environment.notchConfig.showRecentResults)
             Toggle("Activity progress", isOn: $environment.notchConfig.showActivityProgress)
-            Toggle("Clipboard placeholder", isOn: $environment.notchConfig.showClipboardPreviewPlaceholder)
         }
     }
 

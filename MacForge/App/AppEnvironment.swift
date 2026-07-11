@@ -91,6 +91,28 @@ final class AppEnvironment: ObservableObject {
                         volumeHUDCenter.stop()
                     }
                 }
+                if liveIslandSettings.clipboardHistoryEnabled != oldValue.clipboardHistoryEnabled {
+                    if liveIslandSettings.clipboardHistoryEnabled {
+                        clipboardHistoryCenter.start()
+                    } else {
+                        clipboardHistoryCenter.stop()
+                        clipboardHistoryCenter.clear()
+                    }
+                }
+                let weatherChanged = liveIslandSettings.weatherEnabled != oldValue.weatherEnabled
+                    || liveIslandSettings.weatherLatitude != oldValue.weatherLatitude
+                    || liveIslandSettings.weatherLongitude != oldValue.weatherLongitude
+                if weatherChanged {
+                    weatherGlanceCenter.configure(
+                        latitude: liveIslandSettings.weatherLatitude,
+                        longitude: liveIslandSettings.weatherLongitude,
+                        locationName: liveIslandSettings.weatherLocationName,
+                        enabled: liveIslandSettings.weatherEnabled
+                    )
+                }
+                if liveIslandSettings.excludeFromScreenCapture != oldValue.excludeFromScreenCapture {
+                    updateNotchShelf()
+                }
             }
             persist()
         }
@@ -177,6 +199,10 @@ final class AppEnvironment: ObservableObject {
     let liveIslandCoordinator = LiveIslandCoordinator()
     let agentActivityCenter = AgentActivityCenter()
     let volumeHUDCenter = VolumeHUDCenter()
+    let clipboardHistoryCenter = ClipboardHistoryCenter()
+    let weatherGlanceCenter = WeatherGlanceCenter()
+    let audioOutputSwitcher = AudioOutputSwitcher()
+    let keepAwakeController = KeepAwakeController()
 
     private let configurationURL: URL
     private var isLoading = true
@@ -293,6 +319,15 @@ final class AppEnvironment: ObservableObject {
             if liveIslandSettings.volumeHUDEnabled {
                 volumeHUDCenter.start()
             }
+            if liveIslandSettings.clipboardHistoryEnabled {
+                clipboardHistoryCenter.start()
+            }
+            weatherGlanceCenter.configure(
+                latitude: liveIslandSettings.weatherLatitude,
+                longitude: liveIslandSettings.weatherLongitude,
+                locationName: liveIslandSettings.weatherLocationName,
+                enabled: liveIslandSettings.weatherEnabled
+            )
         }
         refreshPermissions()
         refreshWallpaperStates()
@@ -594,6 +629,61 @@ final class AppEnvironment: ObservableObject {
         codexConnected = AgentIntegrationInstaller.isCodexConnected()
     }
 
+    // MARK: - Audio output / clipboard / weather
+
+    /// Switches the system default output to the next device and shows which
+    /// one, iPhone-control-center style.
+    func cycleAudioOutput() {
+        guard let device = audioOutputSwitcher.cycleToNextOutput() else {
+            notchIslandActivityCenter.showActivity(
+                kind: .idle,
+                title: "Audio Output",
+                message: "No other output device is available.",
+                symbolName: "hifispeaker",
+                duration: 2.5
+            )
+            return
+        }
+        notchIslandActivityCenter.showActivity(
+            kind: .idle,
+            title: "Audio Output",
+            message: device.name,
+            symbolName: "hifispeaker.fill",
+            duration: 2.5
+        )
+        record(.success("Audio Output", "Switched sound output to \(device.name)."))
+    }
+
+    /// Brief in-island confirmation after re-copying a clipboard item.
+    /// Deliberately content-free: clipboard text must never leave the Clip tab
+    /// (the activity card and results feed would outlive "Clear history").
+    func flashClipboardCopied(_ item: ClipboardHistoryItem) {
+        notchIslandActivityCenter.showActivity(
+            kind: .idle,
+            title: "Clipboard",
+            message: item.kind == .text ? "Copied back to the clipboard." : "Files copied back to the clipboard.",
+            symbolName: "doc.on.clipboard.fill",
+            duration: 1.6
+        )
+    }
+
+    /// Applies a picked weather location and turns the glance on.
+    func setWeatherLocation(_ location: WeatherLocationResult) {
+        liveIslandSettings.weatherLatitude = location.latitude
+        liveIslandSettings.weatherLongitude = location.longitude
+        liveIslandSettings.weatherLocationName = location.displayName
+        liveIslandSettings.weatherEnabled = true
+        append(.success("Weather", "Showing conditions for \(location.displayName)."))
+    }
+
+    func clearWeatherLocation() {
+        liveIslandSettings.weatherEnabled = false
+        liveIslandSettings.weatherLatitude = nil
+        liveIslandSettings.weatherLongitude = nil
+        liveIslandSettings.weatherLocationName = nil
+        weatherGlanceCenter.stop()
+    }
+
     func restoreDockManagedSettings() async {
         let wasEnabled = experimentalDockTweaksEnabled
         if !experimentalDockTweaksEnabled {
@@ -616,6 +706,9 @@ final class AppEnvironment: ObservableObject {
         resetNotchConfigToSafeDefaults()
         liveIslandCoordinator.clearTransientState()
         agentActivityCenter.clearAll()
+        clipboardHistoryCenter.clear()
+        keepAwakeController.setActive(false)
+        weatherGlanceCenter.stop()
         resetHoverState()
         notchIslandActivityCenter.hide()
         liveIslandSettings = .default

@@ -201,6 +201,60 @@ final class NotchIslandStateTests: XCTestCase {
     }
 }
 
+/// In-memory pasteboard stand-in for clipboard tests.
+final class FakePasteboard: PasteboardReading {
+    private(set) var changeCount = 0
+    private(set) var typeIdentifiers: [String] = []
+    private var string: String?
+    private var fileURLs: [URL] = []
+    private(set) var lastWritten: String?
+    private(set) var lastWrittenFilePaths: [String]?
+    /// Fired during readString to simulate a cross-process write racing the
+    /// capture between the type check and the content read.
+    var onReadString: (() -> Void)?
+
+    func put(_ value: String, types: [String] = ["public.utf8-plain-text"]) {
+        string = value
+        fileURLs = []
+        typeIdentifiers = types
+        changeCount += 1
+    }
+
+    func putFiles(_ urls: [URL]) {
+        fileURLs = urls
+        string = nil
+        typeIdentifiers = ["public.file-url"]
+        changeCount += 1
+    }
+
+    func readString() -> String? {
+        onReadString?()
+        return string
+    }
+
+    func readFileURLs() -> [URL] { fileURLs }
+
+    @discardableResult
+    func write(_ value: String) -> Int {
+        string = value
+        fileURLs = []
+        lastWritten = value
+        typeIdentifiers = ["public.utf8-plain-text"]
+        changeCount += 1
+        return changeCount
+    }
+
+    @discardableResult
+    func writeFileURLs(_ paths: [String]) -> Int {
+        fileURLs = paths.map { URL(fileURLWithPath: $0) }
+        string = nil
+        lastWrittenFilePaths = paths
+        typeIdentifiers = ["public.file-url"]
+        changeCount += 1
+        return changeCount
+    }
+}
+
 @MainActor
 final class AgentActivityCenterTests: XCTestCase {
     private func makeCenter(now: Date) -> AgentActivityCenter {
@@ -360,6 +414,192 @@ final class AgentActivityCenterTests: XCTestCase {
         let refused = AgentIntegrationInstaller.installCodexNotify(configURL: custom, binDirectory: bin)
         XCTAssertFalse(refused.success)
         XCTAssertTrue(try String(contentsOf: custom, encoding: .utf8).contains("/my/own/notifier"))
+    }
+
+    func testClipboardCaptureDedupesSkipsConcealedAndCaps() {
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { Date() })
+
+        // Normal copy is captured.
+        fake.put("hello world")
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.map(\.text), ["hello world"])
+
+        // Identical re-copy refreshes position instead of duplicating.
+        fake.put("hello world")
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.count, 1)
+
+        // Concealed (password manager) content is never captured.
+        fake.put("hunter2", types: ["public.utf8-plain-text", "org.nspasteboard.ConcealedType"])
+        center.captureIfChanged()
+        XCTAssertFalse(center.items.contains { $0.text == "hunter2" })
+
+        // Transient content is never captured.
+        fake.put("temp", types: ["public.utf8-plain-text", "org.nspasteboard.TransientType"])
+        center.captureIfChanged()
+        XCTAssertFalse(center.items.contains { $0.text == "temp" })
+
+        // History caps at 24.
+        for index in 0..<30 {
+            fake.put("item \(index)")
+            center.captureIfChanged()
+        }
+        XCTAssertEqual(center.items.count, 24)
+        XCTAssertEqual(center.items.first?.text, "item 29")
+    }
+
+    func testClipboardRecopyDoesNotEchoBackIntoHistory() {
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { Date() })
+
+        fake.put("first")
+        center.captureIfChanged()
+        fake.put("second")
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.map(\.text), ["second", "first"])
+
+        // Re-copying "first" from history writes to the pasteboard but must
+        // not be re-captured as a new event on the next poll.
+        let first = center.items.last!
+        center.copyToPasteboard(first)
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.map(\.text), ["first", "second"])
+        XCTAssertEqual(fake.lastWritten, "first")
+    }
+
+    func testClipboardPauseSkipsCaptureAndResumesCleanly() {
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { Date() })
+
+        center.setPaused(true)
+        fake.put("while paused")
+        center.captureIfChanged()
+        XCTAssertTrue(center.items.isEmpty)
+
+        center.setPaused(false)
+        // The change that happened while paused is not retroactively captured…
+        center.captureIfChanged()
+        XCTAssertTrue(center.items.isEmpty)
+        // …but new changes are.
+        fake.put("after resume")
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.map(\.text), ["after resume"])
+    }
+
+    func testClipboardFileCopyBackRestoresRealFileURLs() throws {
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { Date() })
+
+        // Use a real temp file so the existence check passes.
+        let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("macforge-clip-\(UUID().uuidString).txt")
+        try "x".data(using: .utf8)!.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        fake.putFiles([file])
+        center.captureIfChanged()
+        guard let item = center.items.first else { return XCTFail("file copy not captured") }
+        if case .fileURLs = item.kind {} else { XCTFail("expected fileURLs kind") }
+
+        center.copyToPasteboard(item)
+        XCTAssertEqual(fake.lastWrittenFilePaths, [file.path], "real file URLs restored, not a name string")
+        XCTAssertNil(fake.lastWritten, "no plain-text fallback when the file still exists")
+    }
+
+    func testClipboardRacingConcealedWriteIsDiscarded() {
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { Date() })
+
+        fake.put("benign")
+        // Simulate a password manager writing a concealed secret between the
+        // type check and the content read.
+        fake.onReadString = { [weak fake] in
+            fake?.onReadString = nil
+            fake?.put("s3cret!", types: ["public.utf8-plain-text", "org.nspasteboard.ConcealedType"])
+        }
+        center.captureIfChanged()
+        XCTAssertTrue(center.items.isEmpty, "capture that raced a pasteboard change must be discarded")
+
+        // The next tick evaluates the new content against its own (concealed)
+        // types and skips it.
+        center.captureIfChanged()
+        XCTAssertTrue(center.items.isEmpty)
+    }
+
+    func testClipboardDedupeAndRecopyRefreshTimestamps() {
+        var now = Date(timeIntervalSinceReferenceDate: 1000)
+        let fake = FakePasteboard()
+        let center = ClipboardHistoryCenter(pasteboard: fake, nowProvider: { now })
+
+        fake.put("hello")
+        center.captureIfChanged()
+        let firstStamp = center.items[0].capturedAt
+
+        // Re-copying identical content later refreshes the timestamp.
+        now = Date(timeIntervalSinceReferenceDate: 5000)
+        fake.put("other")
+        center.captureIfChanged()
+        fake.put("hello")
+        center.captureIfChanged()
+        XCTAssertEqual(center.items.first?.text, "hello")
+        XCTAssertGreaterThan(center.items.first!.capturedAt, firstStamp)
+
+        // copyToPasteboard also stamps the item as just-used.
+        now = Date(timeIntervalSinceReferenceDate: 9000)
+        let other = center.items.last!
+        center.copyToPasteboard(other)
+        XCTAssertEqual(center.items.first?.text, "other")
+        XCTAssertEqual(center.items.first?.capturedAt, now)
+    }
+
+    func testWeatherDecodesOpenMeteoPayloadAndMapsSymbols() {
+        let center = WeatherGlanceCenter()
+        center.configure(latitude: 37.77, longitude: -122.42, locationName: "San Francisco", enabled: false)
+
+        let fixture = #"{"current":{"temperature_2m":68.4,"weather_code":61,"is_day":1}}"#
+        center.apply(responseData: fixture.data(using: .utf8)!)
+
+        XCTAssertEqual(center.current?.temperatureText, "68°")
+        XCTAssertEqual(center.current?.symbolName, "cloud.rain.fill")
+        XCTAssertEqual(center.current?.conditionDescription, "Rain")
+
+        // Clear night maps to the moon variant.
+        XCTAssertEqual(WeatherGlanceCenter.condition(forWMOCode: 0, isDay: false).symbolName, "moon.stars.fill")
+        XCTAssertEqual(WeatherGlanceCenter.condition(forWMOCode: 95, isDay: true).symbolName, "cloud.bolt.rain.fill")
+        // Unknown codes fall back to a plain cloud rather than crashing.
+        XCTAssertEqual(WeatherGlanceCenter.condition(forWMOCode: 42, isDay: true).symbolName, "cloud.fill")
+    }
+
+    func testWeatherUnitFollowsLocale() {
+        XCTAssertTrue(WeatherGlanceCenter.localePrefersFahrenheit(Locale(identifier: "en_US")))
+        XCTAssertFalse(WeatherGlanceCenter.localePrefersFahrenheit(Locale(identifier: "de_DE")))
+        XCTAssertFalse(WeatherGlanceCenter.localePrefersFahrenheit(Locale(identifier: "en_GB")))
+    }
+
+    func testAudioOutputCycleWrapsAndHandlesUnknownCurrent() {
+        let devices = [
+            AudioOutputDevice(id: 41, name: "MacBook Pro Speakers"),
+            AudioOutputDevice(id: 55, name: "AirPods Pro"),
+            AudioOutputDevice(id: 60, name: "Studio Display"),
+        ]
+
+        XCTAssertEqual(AudioOutputSwitcher.nextDevice(after: 41, in: devices)?.id, 55)
+        XCTAssertEqual(AudioOutputSwitcher.nextDevice(after: 60, in: devices)?.id, 41, "wraps around")
+        XCTAssertEqual(AudioOutputSwitcher.nextDevice(after: nil, in: devices)?.id, 41, "unknown current starts at first")
+        XCTAssertEqual(AudioOutputSwitcher.nextDevice(after: 99, in: devices)?.id, 41, "missing current starts at first")
+        XCTAssertNil(AudioOutputSwitcher.nextDevice(after: 41, in: []))
+    }
+
+    func testKeepAwakeAssertionLifecycle() {
+        let controller = KeepAwakeController()
+        XCTAssertFalse(controller.isActive)
+        controller.setActive(true)
+        XCTAssertTrue(controller.isActive)
+        // Idempotent double-activation.
+        controller.setActive(true)
+        XCTAssertTrue(controller.isActive)
+        controller.setActive(false)
+        XCTAssertFalse(controller.isActive)
     }
 
     func testPartialLineSplitAcrossWritesIsNotDropped() throws {

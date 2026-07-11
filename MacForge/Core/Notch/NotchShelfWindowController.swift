@@ -88,6 +88,12 @@ final class NotchShelfWindowController {
         pendingShrink?.cancel()
         pendingShrink = nil
         stopHoverMonitoring()
+        // Collapse the SwiftUI content too, not just the window: an ordered-out
+        // panel keeps its view hierarchy alive, so an expanded Mirror tab would
+        // otherwise keep the camera session running invisibly.
+        if layoutModel.displayState != .collapsed {
+            layoutModel.displayState = .collapsed
+        }
         panel?.orderOut(nil)
     }
 
@@ -217,6 +223,9 @@ final class NotchShelfWindowController {
                 environment: environment,
                 initialFrame: layout.panelFrame(for: state)
             )
+            // Screen-capture privacy: keep the island out of screenshots and
+            // screen shares when the user asks for it.
+            panel.sharingType = environment.liveIslandSettings.excludeFromScreenCapture ? .none : .readOnly
             if self.layoutModel.layout != layout {
                 self.layoutModel.layout = layout
             }
@@ -242,6 +251,9 @@ final class NotchShelfWindowController {
             .environmentObject(environment.notchIslandActivityCenter)
             .environmentObject(environment.liveIslandCoordinator)
             .environmentObject(environment.agentActivityCenter)
+            .environmentObject(environment.clipboardHistoryCenter)
+            .environmentObject(environment.weatherGlanceCenter)
+            .environmentObject(environment.keepAwakeController)
         let hostingView = NSHostingView(rootView: AnyView(root))
         hostingView.frame = CGRect(origin: .zero, size: initialFrame.size)
         hostingView.autoresizingMask = [.width, .height]
@@ -295,6 +307,7 @@ final class NotchShelfWindowController {
         guard let panel else { return }
         panel.alphaValue = config.opacity
         panel.ignoresMouseEvents = config.ignoreMouseEventsWhenInactive
+        panel.sharingType = environment.liveIslandSettings.excludeFromScreenCapture ? .none : .readOnly
         panel.contentView = NSHostingView(
             rootView: NotchShelfView().environmentObject(environment)
         )

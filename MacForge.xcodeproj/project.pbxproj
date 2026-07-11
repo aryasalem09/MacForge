@@ -61,6 +61,14 @@
 		AA100000000000000000010A /* LiveIslandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000109 /* LiveIslandCoordinator.swift */; };
 		AA1000000000000000000301 /* AgentActivityCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Agents/AgentActivityCenter.swift"; sourceTree = "<group>"; };
 		AA1000000000000000000302 /* AgentActivityCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000301 /* AgentActivityCenter.swift */; };
+		AA1000000000000000000303 /* ClipboardHistoryCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Files/ClipboardHistoryCenter.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000304 /* ClipboardHistoryCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000303 /* ClipboardHistoryCenter.swift */; };
+		AA1000000000000000000305 /* WeatherGlanceCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/WeatherGlanceCenter.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000306 /* WeatherGlanceCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000305 /* WeatherGlanceCenter.swift */; };
+		AA1000000000000000000307 /* AudioOutputSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/LiveIsland/AudioOutputSwitcher.swift"; sourceTree = "<group>"; };
+		AA1000000000000000000308 /* AudioOutputSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000307 /* AudioOutputSwitcher.swift */; };
+		AA1000000000000000000309 /* NotchMirrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UI/Notch/NotchMirrorView.swift"; sourceTree = "<group>"; };
+		AA100000000000000000030A /* NotchMirrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000309 /* NotchMirrorView.swift */; };
 		C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfPanel.swift"; sourceTree = "<group>"; };
 		9AA7A2C70886E022B2A06C48 /* NotchShelfPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24B39CF3AEBD0821EA3D0B3 /* NotchShelfPanel.swift */; };
 		ADDDEF87B269C3A37207B53B /* NotchShelfWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/Notch/NotchShelfWindowController.swift"; sourceTree = "<group>"; };
@@ -252,6 +260,10 @@
 				AA1000000000000000000107,
 				AA1000000000000000000109,
 				AA1000000000000000000301,
+				AA1000000000000000000303,
+				AA1000000000000000000305,
+				AA1000000000000000000307,
+				AA1000000000000000000309,
 				C24B39CF3AEBD0821EA3D0B3,
 				ADDDEF87B269C3A37207B53B,
 				52CCD9FE5355F336CD024F6A,
@@ -388,6 +400,10 @@
 				AA1000000000000000000108,
 				AA100000000000000000010A,
 				AA1000000000000000000302,
+				AA1000000000000000000304,
+				AA1000000000000000000306,
+				AA1000000000000000000308,
+				AA100000000000000000030A,
 				9AA7A2C70886E022B2A06C48,
 				1575ADD112A28C8C75255A5D,
 				38B7CE9A7F42E7F7020740DE,
@@ -582,6 +598,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacForge;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge reads now-playing info and sends play/pause/skip to media apps you enable (Music, Spotify, QuickTime, browsers). macOS asks for consent per app first.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "MacForge shows a quick camera self-check in the notch Mirror tab. The preview is live-only and never recorded.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacForge shows your next calendar event in the Notch Island shortly before it starts. Access is requested only if you enable the Calendar widget.";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
@@ -612,6 +629,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacForge;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacForge reads now-playing info and sends play/pause/skip to media apps you enable (Music, Spotify, QuickTime, browsers). macOS asks for consent per app first.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "MacForge shows a quick camera self-check in the notch Mirror tab. The preview is live-only and never recorded.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacForge shows your next calendar event in the Notch Island shortly before it starts. Access is requested only if you enable the Calendar widget.";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "MacForge opens only folders you choose for organization workflows.";

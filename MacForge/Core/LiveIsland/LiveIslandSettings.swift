@@ -17,6 +17,12 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
     var providerDiagnosticsEnabled: Bool
     var agentActivityEnabled: Bool
     var showBatteryInIsland: Bool
+    var clipboardHistoryEnabled: Bool
+    var weatherEnabled: Bool
+    var weatherLatitude: Double?
+    var weatherLongitude: Double?
+    var weatherLocationName: String?
+    var excludeFromScreenCapture: Bool
     var downloadsFolderBookmark: Data?
     var downloadsFolderName: String?
 
@@ -37,6 +43,12 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         providerDiagnosticsEnabled: false,
         agentActivityEnabled: true,
         showBatteryInIsland: true,
+        clipboardHistoryEnabled: true,
+        weatherEnabled: false,
+        weatherLatitude: nil,
+        weatherLongitude: nil,
+        weatherLocationName: nil,
+        excludeFromScreenCapture: false,
         downloadsFolderBookmark: nil,
         downloadsFolderName: nil
     )
@@ -58,6 +70,12 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         providerDiagnosticsEnabled: Bool,
         agentActivityEnabled: Bool,
         showBatteryInIsland: Bool,
+        clipboardHistoryEnabled: Bool = true,
+        weatherEnabled: Bool = false,
+        weatherLatitude: Double? = nil,
+        weatherLongitude: Double? = nil,
+        weatherLocationName: String? = nil,
+        excludeFromScreenCapture: Bool = false,
         downloadsFolderBookmark: Data?,
         downloadsFolderName: String?
     ) {
@@ -77,6 +95,12 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         self.providerDiagnosticsEnabled = providerDiagnosticsEnabled
         self.agentActivityEnabled = agentActivityEnabled
         self.showBatteryInIsland = showBatteryInIsland
+        self.clipboardHistoryEnabled = clipboardHistoryEnabled
+        self.weatherEnabled = weatherEnabled
+        self.weatherLatitude = weatherLatitude
+        self.weatherLongitude = weatherLongitude
+        self.weatherLocationName = weatherLocationName
+        self.excludeFromScreenCapture = excludeFromScreenCapture
         self.downloadsFolderBookmark = downloadsFolderBookmark
         self.downloadsFolderName = downloadsFolderName
     }
@@ -126,6 +150,12 @@ struct LiveIslandSettings: Codable, Equatable, Hashable {
         providerDiagnosticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .providerDiagnosticsEnabled) ?? defaults.providerDiagnosticsEnabled
         agentActivityEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentActivityEnabled) ?? defaults.agentActivityEnabled
         showBatteryInIsland = try container.decodeIfPresent(Bool.self, forKey: .showBatteryInIsland) ?? defaults.showBatteryInIsland
+        clipboardHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .clipboardHistoryEnabled) ?? defaults.clipboardHistoryEnabled
+        weatherEnabled = try container.decodeIfPresent(Bool.self, forKey: .weatherEnabled) ?? defaults.weatherEnabled
+        weatherLatitude = try container.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? defaults.weatherLatitude
+        weatherLongitude = try container.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? defaults.weatherLongitude
+        weatherLocationName = try container.decodeIfPresent(String.self, forKey: .weatherLocationName) ?? defaults.weatherLocationName
+        excludeFromScreenCapture = try container.decodeIfPresent(Bool.self, forKey: .excludeFromScreenCapture) ?? defaults.excludeFromScreenCapture
         downloadsFolderBookmark = try container.decodeIfPresent(Data.self, forKey: .downloadsFolderBookmark) ?? defaults.downloadsFolderBookmark
         downloadsFolderName = try container.decodeIfPresent(String.self, forKey: .downloadsFolderName) ?? defaults.downloadsFolderName
     }

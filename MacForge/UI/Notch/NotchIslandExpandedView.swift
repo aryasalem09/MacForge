@@ -6,6 +6,8 @@ enum IslandTab: String, CaseIterable, Identifiable {
     case now
     case agents
     case tray
+    case clip
+    case mirror
     case tools
 
     var id: String { rawValue }
@@ -15,6 +17,8 @@ enum IslandTab: String, CaseIterable, Identifiable {
         case .now: "Now"
         case .agents: "Agents"
         case .tray: "Tray"
+        case .clip: "Clip"
+        case .mirror: "Mirror"
         case .tools: "Tools"
         }
     }
@@ -24,6 +28,8 @@ enum IslandTab: String, CaseIterable, Identifiable {
         case .now: "play.circle"
         case .agents: "terminal"
         case .tray: "tray.full"
+        case .clip: "doc.on.clipboard"
+        case .mirror: "web.camera"
         case .tools: "square.grid.2x2"
         }
     }
@@ -41,6 +47,8 @@ struct NotchIslandExpandedView: View {
     @EnvironmentObject private var activityCenter: NotchIslandActivityCenter
     @EnvironmentObject private var liveIslandCoordinator: LiveIslandCoordinator
     @EnvironmentObject private var agentCenter: AgentActivityCenter
+    @EnvironmentObject private var weatherCenter: WeatherGlanceCenter
+    @EnvironmentObject private var keepAwake: KeepAwakeController
     @State private var contentHeight: CGFloat = 220
     @State private var chromeHeight: CGFloat = 70
 
@@ -49,6 +57,12 @@ struct NotchIslandExpandedView: View {
     private var tab: IslandTab {
         get { model.activeExpandedTab }
         nonmutating set { model.activeExpandedTab = newValue }
+    }
+
+    /// The Clip tab only exists while clipboard history is enabled — showing a
+    /// capture UI that will never capture is a broken promise.
+    private var availableTabs: [IslandTab] {
+        IslandTab.allCases.filter { $0 != .clip || environment.liveIslandSettings.clipboardHistoryEnabled }
     }
 
     /// The scroll viewport gets exactly the content's natural height, capped
@@ -87,6 +101,11 @@ struct NotchIslandExpandedView: View {
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .onAppear { selectDefaultTab() }
+        .onChange(of: environment.liveIslandSettings.clipboardHistoryEnabled) { _, enabled in
+            if !enabled, tab == .clip {
+                tab = .now
+            }
+        }
         .accessibilityLabel("Expanded Notch Island")
     }
 
@@ -95,6 +114,18 @@ struct NotchIslandExpandedView: View {
             if environment.liveIslandSettings.showBatteryInIsland {
                 IslandBatteryView()
             }
+            if let weather = weatherCenter.current {
+                HStack(spacing: 4) {
+                    Image(systemName: weather.symbolName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.yellow)
+                    Text(weather.temperatureText)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .help("\(weather.conditionDescription) · \(weather.locationName)")
+                .accessibilityLabel("\(weather.temperatureText), \(weather.conditionDescription) in \(weather.locationName)")
+            }
             Spacer()
             if agentCenter.runningCount > 0 {
                 Label("\(agentCenter.runningCount)", systemImage: "bolt.horizontal.circle")
@@ -102,6 +133,28 @@ struct NotchIslandExpandedView: View {
                     .foregroundStyle(.cyan)
                     .help("\(agentCenter.runningCount) agent task(s) running")
             }
+            Button {
+                environment.cycleAudioOutput()
+            } label: {
+                Image(systemName: "hifispeaker")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.7))
+            .help("Switch audio output (\(environment.audioOutputSwitcher.currentOutputDeviceName() ?? "unknown"))")
+            .accessibilityLabel("Switch audio output device")
+            Button {
+                keepAwake.toggle()
+            } label: {
+                Image(systemName: keepAwake.isActive ? "cup.and.saucer.fill" : "cup.and.saucer")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(keepAwake.isActive ? .mint : .white.opacity(0.7))
+            .help(keepAwake.isActive ? "Keeping the display awake — click to allow sleep" : "Keep the display awake")
+            .accessibilityLabel(keepAwake.isActive ? "Stop keeping display awake" : "Keep display awake")
             Button {
                 environment.collapseNotchIsland()
             } label: {
@@ -118,7 +171,7 @@ struct NotchIslandExpandedView: View {
 
     private var tabBar: some View {
         HStack(spacing: 4) {
-            ForEach(IslandTab.allCases) { item in
+            ForEach(availableTabs) { item in
                 Button {
                     withAnimation(.easeOut(duration: 0.16)) { tab = item }
                 } label: {
@@ -156,6 +209,10 @@ struct NotchIslandExpandedView: View {
             AgentsPanelView()
         case .tray:
             NotchTrayView()
+        case .clip:
+            NotchClipboardView()
+        case .mirror:
+            NotchMirrorView()
         case .tools:
             NotchToolsView()
         }

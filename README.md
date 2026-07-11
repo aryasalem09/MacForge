@@ -27,6 +27,12 @@ This project was created and locally verified on:
 - A drag-to-seek scrubber on the Now Playing card for Music, Spotify, and QuickTime, plus Spotify album artwork.
 - Timers with preset and custom durations that persist across relaunch and chime on completion.
 - A battery/charging indicator in the island header (public `IOKit` power sources).
+- **Clipboard history (Clip tab)**: everything you copy, one click to copy back. Memory-only — never written to disk, cleared on quit — and anything password managers mark concealed/transient is never captured.
+- **Camera mirror (Mirror tab)**: a quick self-check before calls (AVFoundation). The camera runs only while the tab is open and nothing is recorded.
+- **Weather glance**: current conditions in the island header via Open-Meteo — you pick a city once in Settings; no location permission, no API key, no account.
+- **Audio output switcher**: one click in the island header cycles sound between speakers, AirPods, and displays (public CoreAudio).
+- **Keep-awake toggle**: a caffeinate-style button in the header holds the display awake through a public IOKit power assertion; never persisted across relaunch.
+- **Screenshot privacy**: an option to exclude the island from screenshots and screen shares (`NSWindow.sharingType`).
 - A first-run welcome flow; permissions are requested only when the matching feature is enabled — never at launch.
 - **Agent & CLI activity**: Claude Code, Codex, builds, deploys, or any terminal job can push live progress and notifications into the notch, split-screen alongside music. See "Agents & CLI activity" below.
 - NotchNook-style practical interactions: idle pill, hover/click/swipe expansion, media controls where supported, a drag-and-drop file tray, and expanded widgets.
